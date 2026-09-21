@@ -35,11 +35,11 @@ public interface StorageProvider {
     }
 
     /**
-     * Creates a container bound to the given configuration.
+     * Creates a backend bound to the given configuration.
      *
      * @param config container configuration, never {@code null}
-     * @return a ready-to-use container, never {@code null}
+     * @return a ready-to-use backend, never {@code null}
      * @throws StorageOperationException if the backend client cannot be initialized
      */
-    StorageContainer createContainer(ContainerConfiguration config);
+    StorageBackend createBackend(ContainerConfiguration config);
 }

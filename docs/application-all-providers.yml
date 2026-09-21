@@ -1,0 +1,182 @@
+# Complete Spring Boot configuration example for every Polystore provider.
+#
+# Copy only the containers and backend modules your application uses. All endpoints, credentials,
+# bucket/container names and paths below are placeholders. Never commit real credentials.
+#
+# Common container fields are siblings of the provider block:
+#   name, type, default, tenant-isolation, enable-auto-multi-part-upload,
+#   multi-part-upload-min-file-size, multi-part-upload-sharding-size and http-access.
+# Provider-specific fields belong inside the block whose key matches `type`.
+
+polystore:
+  containers:
+    # Local filesystem (reference provider alias: FileSystem)
+    - name: local-files
+      type: local
+      default: true
+      tenant-isolation: NONE
+      enable-auto-multi-part-upload: false
+      multi-part-upload-min-file-size: 104857600
+      multi-part-upload-sharding-size: 5242880
+      http-access: true
+      local:
+        base-path: D:/polystore/data
+        append-container-name-to-base-path: true
+        http-server: https://cdn.example.com/files
+        create-directories: true
+
+    # MinIO
+    - name: minio-files
+      type: minio
+      tenant-isolation: PATH_PREFIX
+      enable-auto-multi-part-upload: true
+      multi-part-upload-min-file-size: 104857600
+      multi-part-upload-sharding-size: 5242880
+      http-access: true
+      minio:
+        end-point: minio.example.com:9000
+        access-key: replace-with-minio-access-key
+        secret-key: replace-with-minio-secret-key
+        bucket-name: polystore-minio
+        with-ssl: true
+        create-bucket-if-not-exists: false
+        region: us-east-1
+
+    # Generic S3-compatible storage, such as Ceph or Cloudflare R2. Do not use this for AWS or KS3.
+    - name: s3-compatible-files
+      type: s3
+      tenant-isolation: NONE
+      enable-auto-multi-part-upload: true
+      multi-part-upload-min-file-size: 104857600
+      multi-part-upload-sharding-size: 5242880
+      http-access: true
+      s3:
+        server-url: https://s3-compatible.example.com
+        access-key-id: replace-with-s3-access-key
+        secret-access-key: replace-with-s3-secret-key
+        bucket-name: polystore-s3-compatible
+        force-path-style: true
+        use-chunk-encoding: false
+        protocol: https
+        authentication-region: us-east-1
+        create-bucket-if-not-exists: false
+
+    # Amazon Web Services S3. This example uses static credentials.
+    - name: aws-files
+      type: aws
+      tenant-isolation: NONE
+      enable-auto-multi-part-upload: true
+      multi-part-upload-min-file-size: 104857600
+      multi-part-upload-sharding-size: 5242880
+      http-access: true
+      aws:
+        region: us-east-1
+        container-name: polystore-aws
+        access-key-id: replace-with-aws-access-key
+        secret-access-key: replace-with-aws-secret-key
+        use-credentials: false
+        use-temporary-credentials: false
+        use-temporary-federated-credentials: false
+        profile-name: ""
+        profiles-location: ""
+        duration-seconds: 0
+        name: ""
+        policy: ""
+        temporary-credentials-cache-key: aws-files/aws
+        create-container-if-not-exists: false
+
+    # Kingsoft Cloud KS3. KS3 uses its native KSS signature by default.
+    - name: ks3-files
+      type: ks3
+      tenant-isolation: NONE
+      enable-auto-multi-part-upload: true
+      multi-part-upload-min-file-size: 104857600
+      multi-part-upload-sharding-size: 5242880
+      http-access: true
+      ks3:
+        endpoint: ks3-cn-beijing.ksyuncs.com
+        bucket-name: polystore-ks3
+        access-key: replace-with-ks3-access-key
+        secret-key: replace-with-ks3-secret-key
+        protocol: https
+        user-agent: polystore
+        max-connections: 50
+        timeout: 10000
+        read-write-timeout: 30000
+        signer-version: V2
+        use-aws-signature: false
+        create-container-if-not-exists: false
+
+    # Azure Blob Storage. Use either connection-string or the account-name/account-key pair.
+    - name: azure-files
+      type: azure
+      tenant-isolation: NONE
+      enable-auto-multi-part-upload: true
+      multi-part-upload-min-file-size: 104857600
+      multi-part-upload-sharding-size: 5242880
+      http-access: true
+      azure:
+        connection-string: "DefaultEndpointsProtocol=https;AccountName=replace-with-account-name;AccountKey=replace-with-account-key;EndpointSuffix=core.windows.net"
+        # Alternative to connection-string:
+        # account-name: replace-with-account-name
+        # account-key: replace-with-account-key
+        container-name: polystore-azure
+        create-container-if-not-exists: false
+
+    # Alibaba Cloud OSS. This example uses long-lived access keys rather than STS.
+    - name: aliyun-oss-files
+      type: aliyun-oss
+      tenant-isolation: NONE
+      enable-auto-multi-part-upload: true
+      multi-part-upload-min-file-size: 104857600
+      multi-part-upload-sharding-size: 5242880
+      http-access: true
+      aliyun-oss:
+        endpoint: oss-cn-hangzhou.aliyuncs.com
+        bucket-name: polystore-aliyun
+        region-id: cn-hangzhou
+        access-key-id: replace-with-aliyun-access-key
+        access-key-secret: replace-with-aliyun-access-key-secret
+        use-security-token-service: false
+        role-arn: ""
+        role-session-name: ""
+        duration-seconds: 0
+        policy: ""
+        temporary-credentials-cache-key: aliyun-oss-files/aliyun
+        create-container-if-not-exists: false
+        use-internal: false
+
+    # Huawei Cloud OBS (reference provider alias: Obs)
+    - name: huawei-obs-files
+      type: huawei-obs
+      tenant-isolation: NONE
+      enable-auto-multi-part-upload: true
+      multi-part-upload-min-file-size: 104857600
+      multi-part-upload-sharding-size: 5242880
+      http-access: true
+      huawei-obs:
+        endpoint: obs.cn-north-4.myhuaweicloud.com
+        access-key-id: replace-with-huawei-access-key
+        access-key-secret: replace-with-huawei-access-key-secret
+        bucket-name: polystore-huawei
+        create-container-if-not-exists: false
+
+    # SFTP (Polystore extension). Use either password or private-key-path authentication.
+    - name: sftp-files
+      type: sftp
+      tenant-isolation: NONE
+      enable-auto-multi-part-upload: false
+      multi-part-upload-min-file-size: 104857600
+      multi-part-upload-sharding-size: 5242880
+      http-access: true
+      sftp:
+        host: sftp.example.com
+        port: 22
+        username: polystore
+        password: replace-with-sftp-password
+        # Alternative to password:
+        # private-key-path: D:/polystore/keys/id_ed25519
+        base-path: /srv/polystore
+        url-prefix: https://downloads.example.com
+        pool-size: 5
+        strict-host-key-checking: "yes"

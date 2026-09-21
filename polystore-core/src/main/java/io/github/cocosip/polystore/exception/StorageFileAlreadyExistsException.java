@@ -1,8 +1,7 @@
 package io.github.cocosip.polystore.exception;
 
 /**
- * Thrown when a file already exists and {@link io.github.cocosip.polystore.SaveArgs#isOverwrite()}
- * is {@code false}.
+ * Thrown when a file already exists and the save operation does not allow replacement.
  *
  * <p>Note the {@code Storage} prefix: the plain {@code FileAlreadyExistsException} name is taken by
  * {@code java.nio.file}, and the clash forces ugly qualified names in backend code.</p>

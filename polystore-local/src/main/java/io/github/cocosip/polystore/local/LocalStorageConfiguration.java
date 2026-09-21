@@ -10,7 +10,7 @@ import io.github.cocosip.polystore.util.ConfigUtils;
  * @param appendContainerNameToBasePath   whether files are stored under a {@code containerName}
  *                                        sub-directory, default {@code true}
  * @param httpServer                      HTTP static-resource server prefixed to the URL returned
- *                                        by {@code getUrl}, default empty
+ *                                        by {@code getAccessUrl}, default empty
  * @param createDirectories               whether the missing base directory is created, default
  *                                        {@code true}
  */

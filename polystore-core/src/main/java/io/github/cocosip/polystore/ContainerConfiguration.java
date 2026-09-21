@@ -12,10 +12,20 @@ import java.util.Map;
  */
 public final class ContainerConfiguration {
 
+    /** Default multipart threshold: 100 MiB. */
+    public static final long DEFAULT_MULTI_PART_UPLOAD_MIN_FILE_SIZE = 100L * 1024 * 1024;
+
+    /** Default multipart part size: 5 MiB. */
+    public static final long DEFAULT_MULTI_PART_UPLOAD_SHARDING_SIZE = 5L * 1024 * 1024;
+
     private final String name;
     private final String type;
     private final boolean isDefault;
     private final TenantIsolationMode tenantIsolation;
+    private final boolean enableAutoMultiPartUpload;
+    private final long multiPartUploadMinFileSize;
+    private final long multiPartUploadShardingSize;
+    private final boolean httpAccess;
     private final Map<String, Object> properties;
 
     private ContainerConfiguration(Builder builder) {
@@ -23,6 +33,24 @@ public final class ContainerConfiguration {
         this.type = builder.type;
         this.isDefault = builder.isDefault;
         this.tenantIsolation = builder.tenantIsolation;
+        if (builder.multiPartUploadMinFileSize <= 0) {
+            throw new IllegalArgumentException("multiPartUploadMinFileSize must be positive");
+        }
+        if (builder.multiPartUploadShardingSize <= 0) {
+            throw new IllegalArgumentException("multiPartUploadShardingSize must be positive");
+        }
+        if (builder.enableAutoMultiPartUpload
+                && builder.multiPartUploadShardingSize < DEFAULT_MULTI_PART_UPLOAD_SHARDING_SIZE) {
+            throw new IllegalArgumentException("multiPartUploadShardingSize must be at least 5 MiB");
+        }
+        if (builder.multiPartUploadShardingSize > builder.multiPartUploadMinFileSize) {
+            throw new IllegalArgumentException(
+                    "multiPartUploadShardingSize must not exceed multiPartUploadMinFileSize");
+        }
+        this.enableAutoMultiPartUpload = builder.enableAutoMultiPartUpload;
+        this.multiPartUploadMinFileSize = builder.multiPartUploadMinFileSize;
+        this.multiPartUploadShardingSize = builder.multiPartUploadShardingSize;
+        this.httpAccess = builder.httpAccess;
         this.properties = Collections.unmodifiableMap(new LinkedHashMap<>(builder.properties));
     }
 
@@ -71,6 +99,26 @@ public final class ContainerConfiguration {
         return tenantIsolation;
     }
 
+    /** Returns whether Polystore should automatically choose multipart upload. */
+    public boolean isEnableAutoMultiPartUpload() {
+        return enableAutoMultiPartUpload;
+    }
+
+    /** Returns the size above which multipart upload is selected. */
+    public long getMultiPartUploadMinFileSize() {
+        return multiPartUploadMinFileSize;
+    }
+
+    /** Returns the configured multipart part size. */
+    public long getMultiPartUploadShardingSize() {
+        return multiPartUploadShardingSize;
+    }
+
+    /** Returns whether public access URL generation is enabled. */
+    public boolean isHttpAccess() {
+        return httpAccess;
+    }
+
     /**
      * Returns the provider-specific parameters, read-only.
      *
@@ -103,6 +151,10 @@ public final class ContainerConfiguration {
         private String type;
         private boolean isDefault;
         private TenantIsolationMode tenantIsolation = TenantIsolationMode.NONE;
+        private boolean enableAutoMultiPartUpload;
+        private long multiPartUploadMinFileSize = DEFAULT_MULTI_PART_UPLOAD_MIN_FILE_SIZE;
+        private long multiPartUploadShardingSize = DEFAULT_MULTI_PART_UPLOAD_SHARDING_SIZE;
+        private boolean httpAccess = true;
         private Map<String, Object> properties = new LinkedHashMap<>();
 
         private Builder() {}
@@ -148,6 +200,30 @@ public final class ContainerConfiguration {
          */
         public Builder tenantIsolation(TenantIsolationMode tenantIsolation) {
             this.tenantIsolation = tenantIsolation;
+            return this;
+        }
+
+        /** Enables or disables automatic multipart upload. */
+        public Builder enableAutoMultiPartUpload(boolean value) {
+            this.enableAutoMultiPartUpload = value;
+            return this;
+        }
+
+        /** Sets the multipart selection threshold in bytes. */
+        public Builder multiPartUploadMinFileSize(long value) {
+            this.multiPartUploadMinFileSize = value;
+            return this;
+        }
+
+        /** Sets the multipart part size in bytes. */
+        public Builder multiPartUploadShardingSize(long value) {
+            this.multiPartUploadShardingSize = value;
+            return this;
+        }
+
+        /** Enables or disables public access URL generation. */
+        public Builder httpAccess(boolean value) {
+            this.httpAccess = value;
             return this;
         }
 

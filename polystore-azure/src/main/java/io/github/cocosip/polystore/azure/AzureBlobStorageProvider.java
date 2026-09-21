@@ -4,8 +4,7 @@ import com.azure.storage.blob.BlobContainerClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.common.StorageSharedKeyCredential;
 import io.github.cocosip.polystore.ContainerConfiguration;
-import io.github.cocosip.polystore.DefaultStorageContainer;
-import io.github.cocosip.polystore.StorageContainer;
+import io.github.cocosip.polystore.StorageBackend;
 import io.github.cocosip.polystore.StorageProvider;
 
 /**
@@ -43,7 +42,7 @@ public class AzureBlobStorageProvider implements StorageProvider {
     }
 
     @Override
-    public StorageContainer createContainer(ContainerConfiguration config) {
+    public StorageBackend createBackend(ContainerConfiguration config) {
         AzureBlobStorageConfiguration configuration = AzureBlobStorageConfiguration.from(config);
 
         var builder = new BlobServiceClientBuilder();
@@ -57,9 +56,7 @@ public class AzureBlobStorageProvider implements StorageProvider {
 
         BlobContainerClient containerClient =
                 builder.buildClient().getBlobContainerClient(configuration.containerName());
-        return DefaultStorageContainer.from(
-                config,
-                new AzureBlobStorageClient(
-                        containerClient, configuration.sasExpirySeconds(), configuration.createContainerIfNotExists()));
+        return new AzureBlobStorageClient(
+                containerClient, configuration.sasExpirySeconds(), configuration.createContainerIfNotExists());
     }
 }

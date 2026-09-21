@@ -1,8 +1,7 @@
 package io.github.cocosip.polystore.s3;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
-import io.github.cocosip.polystore.DefaultStorageContainer;
-import io.github.cocosip.polystore.StorageContainer;
+import io.github.cocosip.polystore.StorageBackend;
 import io.github.cocosip.polystore.StorageProvider;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -49,7 +48,7 @@ public class S3StorageProvider implements StorageProvider {
     }
 
     @Override
-    public StorageContainer createContainer(ContainerConfiguration config) {
+    public StorageBackend createBackend(ContainerConfiguration config) {
         S3StorageConfiguration configuration = S3StorageConfiguration.from(config);
 
         StaticCredentialsProvider credentials = StaticCredentialsProvider.create(
@@ -71,13 +70,11 @@ public class S3StorageProvider implements StorageProvider {
                 .endpointOverride(configuration.endpoint())
                 .serviceConfiguration(s3Configuration);
 
-        return DefaultStorageContainer.from(
-                config,
-                new S3StorageClient(
-                        clientBuilder.build(),
-                        presignerBuilder.build(),
-                        configuration.bucketName(),
-                        configuration.urlExpirySeconds(),
-                        configuration.createBucketIfNotExists()));
+        return new S3StorageClient(
+                clientBuilder.build(),
+                presignerBuilder.build(),
+                configuration.bucketName(),
+                configuration.urlExpirySeconds(),
+                configuration.createBucketIfNotExists());
     }
 }

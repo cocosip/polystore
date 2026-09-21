@@ -1,8 +1,7 @@
 package io.github.cocosip.polystore.ks3;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
-import io.github.cocosip.polystore.DefaultStorageContainer;
-import io.github.cocosip.polystore.StorageContainer;
+import io.github.cocosip.polystore.StorageBackend;
 import io.github.cocosip.polystore.StorageProvider;
 import java.util.Collection;
 import java.util.List;
@@ -50,14 +49,12 @@ public class Ks3StorageProvider implements StorageProvider {
     }
 
     @Override
-    public StorageContainer createContainer(ContainerConfiguration config) {
+    public StorageBackend createBackend(ContainerConfiguration config) {
         Ks3StorageConfiguration configuration = Ks3StorageConfiguration.from(config);
-        return DefaultStorageContainer.from(
-                config,
-                new Ks3StorageClient(
-                        Ks3ConnectionFactory.create(configuration),
-                        configuration.bucketName(),
-                        configuration.urlExpirySeconds(),
-                        configuration.createContainerIfNotExists()));
+        return new Ks3StorageClient(
+                Ks3ConnectionFactory.create(configuration),
+                configuration.bucketName(),
+                configuration.urlExpirySeconds(),
+                configuration.createContainerIfNotExists());
     }
 }

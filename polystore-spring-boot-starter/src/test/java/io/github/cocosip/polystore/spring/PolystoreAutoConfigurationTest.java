@@ -2,7 +2,6 @@ package io.github.cocosip.polystore.spring;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.cocosip.polystore.SaveArgs;
 import io.github.cocosip.polystore.StorageManager;
 import io.github.cocosip.polystore.TenantIdSupplier;
 import io.github.cocosip.polystore.spring.event.FileDeletedEvent;
@@ -33,7 +32,7 @@ class PolystoreAutoConfigurationTest {
             assertThat(manager.getDefaultContainer().getName()).isEqualTo("images");
             assertThat(manager.getDefaultContainer().getProviderType()).isEqualTo("test");
 
-            manager.getContainer("images").save("a.txt", new ByteArrayInputStream(new byte[0]), SaveArgs.defaults());
+            manager.getContainer("images").save("a.txt", new ByteArrayInputStream(new byte[0]), 0, ".txt");
             TestStorageProvider provider = context.getBean(TestStorageProvider.class);
             assertThat(provider.clientFor("images").store()).containsKey("a.txt");
         });
@@ -45,8 +44,7 @@ class PolystoreAutoConfigurationTest {
                 .withBean(TenantIdSupplier.class, () -> () -> "tenant-a")
                 .run(context -> {
                     StorageManager manager = context.getBean(StorageManager.class);
-                    manager.getContainer("images")
-                            .save("a.txt", new ByteArrayInputStream(new byte[0]), SaveArgs.defaults());
+                    manager.getContainer("images").save("a.txt", new ByteArrayInputStream(new byte[0]), 0, ".txt");
 
                     TestStorageProvider provider = context.getBean(TestStorageProvider.class);
                     assertThat(provider.clientFor("images").store()).containsKey("tenant-a/a.txt");
@@ -57,7 +55,7 @@ class PolystoreAutoConfigurationTest {
     void storageEventsShouldReachApplicationListeners() {
         runner.withBean(EventCapture.class).run(context -> {
             StorageManager manager = context.getBean(StorageManager.class);
-            manager.getContainer("images").save("a.txt", new ByteArrayInputStream(new byte[0]), SaveArgs.defaults());
+            manager.getContainer("images").save("a.txt", new ByteArrayInputStream(new byte[0]), 0, ".txt");
             manager.getContainer("images").delete("a.txt");
 
             EventCapture capture = context.getBean(EventCapture.class);

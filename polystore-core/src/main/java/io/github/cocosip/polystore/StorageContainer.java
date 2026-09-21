@@ -8,6 +8,9 @@ package io.github.cocosip.polystore;
  */
 public interface StorageContainer extends StorageClient {
 
+    /** Returns this container's complete immutable configuration. */
+    ContainerConfiguration getConfiguration();
+
     /**
      * Returns the container name, unique within its {@link StorageManager}.
      *

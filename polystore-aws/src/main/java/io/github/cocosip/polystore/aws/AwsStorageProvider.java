@@ -1,8 +1,7 @@
 package io.github.cocosip.polystore.aws;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
-import io.github.cocosip.polystore.DefaultStorageContainer;
-import io.github.cocosip.polystore.StorageContainer;
+import io.github.cocosip.polystore.StorageBackend;
 import io.github.cocosip.polystore.StorageProvider;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
@@ -49,7 +48,7 @@ public class AwsStorageProvider implements StorageProvider {
     }
 
     @Override
-    public StorageContainer createContainer(ContainerConfiguration config) {
+    public StorageBackend createBackend(ContainerConfiguration config) {
         AwsStorageConfiguration configuration = AwsStorageConfiguration.from(config);
         AwsCredentialsProvider credentials = AwsCredentialsResolver.resolve(configuration);
         Region awsRegion = Region.of(configuration.region());
@@ -61,13 +60,11 @@ public class AwsStorageProvider implements StorageProvider {
                 .region(awsRegion)
                 .credentialsProvider(credentials)
                 .build();
-        return DefaultStorageContainer.from(
-                config,
-                new AwsStorageClient(
-                        client,
-                        presigner,
-                        configuration.containerName(),
-                        configuration.urlExpirySeconds(),
-                        configuration.createContainerIfNotExists()));
+        return new AwsStorageClient(
+                client,
+                presigner,
+                configuration.containerName(),
+                configuration.urlExpirySeconds(),
+                configuration.createContainerIfNotExists());
     }
 }

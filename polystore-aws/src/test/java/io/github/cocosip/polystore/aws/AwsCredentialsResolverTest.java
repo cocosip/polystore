@@ -7,14 +7,33 @@ import io.github.cocosip.polystore.ContainerConfiguration;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Map;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 import software.amazon.awssdk.auth.credentials.AwsCredentials;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 
 class AwsCredentialsResolverTest {
+
+    private Path profileDirectory;
+
+    @BeforeEach
+    void createProfileDirectory() throws IOException {
+        profileDirectory = Files.createTempDirectory(Path.of("target"), "aws-profile-test-");
+    }
+
+    @AfterEach
+    void deleteProfileDirectory() throws IOException {
+        if (profileDirectory == null || !Files.exists(profileDirectory)) return;
+        try (var paths = Files.walk(profileDirectory)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        }
+    }
 
     private static AwsStorageConfiguration configuration(Map<String, Object> properties) {
         return AwsStorageConfiguration.from(ContainerConfiguration.builder()
@@ -48,13 +67,13 @@ class AwsCredentialsResolverTest {
     }
 
     @Test
-    void profileModeShouldReadTheConfiguredCredentialsFile(@TempDir Path directory) throws IOException {
+    void profileModeShouldReadTheConfiguredCredentialsFile() throws IOException {
         Files.writeString(
-                directory.resolve("credentials"),
+                profileDirectory.resolve("credentials"),
                 "[polystore]\naws_access_key_id = PROFILE_AK\naws_secret_access_key = PROFILE_SK\n");
 
         AwsCredentialsProvider provider = AwsCredentialsResolver.resolve(configuration(properties(
-                "useCredentials", true, "profileName", "polystore", "profilesLocation", directory.toString())));
+                "useCredentials", true, "profileName", "polystore", "profilesLocation", profileDirectory.toString())));
 
         AwsCredentials credentials = provider.resolveCredentials();
         assertThat(credentials.accessKeyId()).isEqualTo("PROFILE_AK");
@@ -62,8 +81,8 @@ class AwsCredentialsResolverTest {
     }
 
     @Test
-    void profileModeShouldAcceptASingleCredentialsFile(@TempDir Path directory) throws IOException {
-        Path file = directory.resolve("credentials");
+    void profileModeShouldAcceptASingleCredentialsFile() throws IOException {
+        Path file = profileDirectory.resolve("credentials");
         Files.writeString(file, "[polystore]\naws_access_key_id = FILE_AK\naws_secret_access_key = FILE_SK\n");
 
         AwsCredentialsProvider provider = AwsCredentialsResolver.resolve(configuration(

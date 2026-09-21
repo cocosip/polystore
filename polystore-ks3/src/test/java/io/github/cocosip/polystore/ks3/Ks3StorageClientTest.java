@@ -3,238 +3,175 @@ package io.github.cocosip.polystore.ks3;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.ksyun.ks3.dto.Bucket;
-import com.ksyun.ks3.dto.GetObjectResult;
-import com.ksyun.ks3.dto.Ks3Object;
-import com.ksyun.ks3.dto.Ks3Result;
+import com.ksyun.ks3.dto.CompleteMultipartUploadResult;
+import com.ksyun.ks3.dto.InitiateMultipartUploadResult;
 import com.ksyun.ks3.dto.ObjectMetadata;
+import com.ksyun.ks3.dto.PartETag;
 import com.ksyun.ks3.dto.PutObjectResult;
 import com.ksyun.ks3.exception.Ks3ServiceException;
 import com.ksyun.ks3.service.Ks3Client;
-import io.github.cocosip.polystore.SaveArgs;
-import io.github.cocosip.polystore.UrlArgs;
-import io.github.cocosip.polystore.exception.StorageFileNotFoundException;
+import com.ksyun.ks3.service.request.InitiateMultipartUploadRequest;
+import com.ksyun.ks3.service.request.UploadPartRequest;
+import io.github.cocosip.polystore.ContainerConfiguration;
+import io.github.cocosip.polystore.StorageProviderSaveArgs;
 import io.github.cocosip.polystore.exception.StorageOperationException;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class Ks3StorageClientTest {
-
-    private static Ks3StorageClient client(RecordingKs3Client sdk, boolean createContainerIfNotExists) {
-        return new Ks3StorageClient(sdk, "archive", 60, createContainerIfNotExists);
-    }
-
-    private static void save(Ks3StorageClient client, Map<String, String> metadata) {
-        client.save(
-                "2024/report.pdf",
-                new ByteArrayInputStream("content".getBytes(StandardCharsets.UTF_8)),
-                SaveArgs.builder()
-                        .contentType("application/pdf")
-                        .metadata(metadata)
-                        .build());
-    }
+    private static final long FIVE_MIB = 5L * 1024 * 1024;
 
     @Test
-    void saveShouldCreateTheBucketWhenAbsentAndThenUpload() {
+    void thresholdEqualityShouldUseSingleStreamingUploadWithoutClosingCallerStream() throws Exception {
         RecordingKs3Client sdk = new RecordingKs3Client();
-        sdk.bucketExistsResult = false;
+        byte[] bytes = new byte[(int) FIVE_MIB + 1];
+        bytes[(int) FIVE_MIB] = 9;
+        TrackingInputStream stream = new TrackingInputStream(bytes);
 
-        save(client(sdk, true), Map.of());
-
-        assertThat(sdk.calls).containsExactly("bucketExists", "createBucket", "putObject");
-        assertThat(sdk.createdBucket).isEqualTo("archive");
-        assertThat(sdk.uploadedBucket).isEqualTo("archive");
-        assertThat(sdk.uploadedKey).isEqualTo("2024/report.pdf");
-    }
-
-    @Test
-    void saveShouldNotCreateAnExistingBucket() {
-        RecordingKs3Client sdk = new RecordingKs3Client();
-
-        save(client(sdk, true), Map.of());
-
-        assertThat(sdk.calls).containsExactly("bucketExists", "putObject");
-        assertThat(sdk.createdBucket).isNull();
-    }
-
-    @Test
-    void saveShouldSkipTheCheckWhenCreationIsDisabled() {
-        RecordingKs3Client sdk = new RecordingKs3Client();
-
-        save(client(sdk, false), Map.of());
+        assertThat(client(sdk).save(args(stream, FIVE_MIB))).isEqualTo("a.bin");
 
         assertThat(sdk.calls).containsExactly("putObject");
+        assertThat(sdk.singleLength).isEqualTo(FIVE_MIB);
+        assertThat(stream.read()).isEqualTo(9);
+        assertThat(stream.closed).isFalse();
     }
 
     @Test
-    void saveShouldSendTheContentLengthContentTypeAndMetadata() {
+    void multipartShouldUploadOrderedPartsAndShortFinalPart() {
         RecordingKs3Client sdk = new RecordingKs3Client();
+        byte[] bytes = new byte[(int) FIVE_MIB + 3];
 
-        save(client(sdk, false), Map.of("source", "unit-test"));
+        client(sdk).save(args(new TrackingInputStream(bytes), bytes.length));
 
-        assertThat(sdk.uploadedMetadata.getContentLength()).isEqualTo(7L);
-        assertThat(sdk.uploadedMetadata.getContentType()).isEqualTo("application/pdf");
-        assertThat(sdk.uploadedMetadata.getUserMeta("source")).isEqualTo("unit-test");
+        assertThat(sdk.calls)
+                .containsExactly("initiateMultipartUpload", "uploadPart", "uploadPart", "completeMultipartUpload");
+        assertThat(sdk.partNumbers).containsExactly(1, 2);
+        assertThat(sdk.partLengths).containsExactly(FIVE_MIB, 3L);
+        assertThat(sdk.completedEtags).containsExactly("etag-1", "etag-2");
     }
 
     @Test
-    void saveShouldFailWhenTheBucketCannotBeChecked() {
+    void multipartFailureShouldAbortWithoutClosingCallerStream() {
         RecordingKs3Client sdk = new RecordingKs3Client();
-        sdk.bucketExistsFailure = new Ks3ServiceException();
+        sdk.failPart = 2;
+        TrackingInputStream stream = new TrackingInputStream(new byte[(int) FIVE_MIB + 1]);
 
-        assertThatThrownBy(() -> save(client(sdk, true), Map.of()))
+        assertThatThrownBy(() -> client(sdk).save(args(stream, FIVE_MIB + 1)))
                 .isInstanceOf(StorageOperationException.class)
-                .hasMessageContaining("Failed to ensure bucket");
-        assertThat(sdk.calls).containsExactly("bucketExists");
+                .hasRootCauseMessage("part failed");
+
+        assertThat(sdk.calls).endsWith("uploadPart", "abortMultipartUpload");
+        assertThat(stream.closed).isFalse();
     }
 
-    @Test
-    void getShouldMapAMissingObjectToFileNotFound() {
-        RecordingKs3Client sdk = new RecordingKs3Client();
-        sdk.getObjectFailure = serviceException(404, "NoSuchKey");
-
-        assertThatThrownBy(() -> client(sdk, false).get("a.txt")).isInstanceOf(StorageFileNotFoundException.class);
+    private static Ks3StorageClient client(RecordingKs3Client sdk) {
+        return new Ks3StorageClient(sdk, "archive", 60, false);
     }
 
-    @Test
-    void getShouldWrapOtherServiceFailures() {
-        RecordingKs3Client sdk = new RecordingKs3Client();
-        sdk.getObjectFailure = serviceException(500, "InternalError");
-
-        assertThatThrownBy(() -> client(sdk, false).get("a.txt"))
-                .isInstanceOf(StorageOperationException.class)
-                .hasMessageContaining("Failed to get file");
+    private static StorageProviderSaveArgs args(TrackingInputStream stream, long length) {
+        ContainerConfiguration configuration = ContainerConfiguration.builder()
+                .name("archive")
+                .type("ks3")
+                .enableAutoMultiPartUpload(true)
+                .multiPartUploadMinFileSize(FIVE_MIB)
+                .multiPartUploadShardingSize(FIVE_MIB)
+                .build();
+        return new StorageProviderSaveArgs(
+                "archive",
+                configuration,
+                "a.bin",
+                stream,
+                length,
+                ".bin",
+                true,
+                "application/octet-stream",
+                Map.of("source", "test"));
     }
 
-    @Test
-    void getShouldReturnTheObjectStream() {
-        RecordingKs3Client sdk = new RecordingKs3Client();
-
-        assertThat(client(sdk, false).get("a.txt")).isNotNull();
-    }
-
-    @Test
-    void existsShouldFollowTheSdkResult() {
-        RecordingKs3Client sdk = new RecordingKs3Client();
-        assertThat(client(sdk, false).exists("a.txt")).isTrue();
-
-        sdk.objectExistsResult = false;
-        assertThat(client(sdk, false).exists("a.txt")).isFalse();
-    }
-
-    @Test
-    void urlShouldUseTheContainerExpiryUnlessOverridden() {
-        RecordingKs3Client sdk = new RecordingKs3Client();
-        Ks3StorageClient client = client(sdk, false);
-
-        client.getUrl("a.txt");
-        assertThat(sdk.presignedExpiries).containsExactly(60);
-
-        client.getUrl("a.txt", UrlArgs.builder().expiry(Duration.ofMinutes(5)).build());
-        assertThat(sdk.presignedExpiries).containsExactly(60, 300);
-    }
-
-    @Test
-    void deleteShouldCallTheSdk() {
-        RecordingKs3Client sdk = new RecordingKs3Client();
-
-        client(sdk, false).delete("a.txt");
-
-        assertThat(sdk.calls).containsExactly("deleteObject");
-        assertThat(sdk.deletedKey).isEqualTo("a.txt");
-    }
-
-    private static Ks3ServiceException serviceException(int statusCode, String errorCode) {
-        Ks3ServiceException exception = new Ks3ServiceException();
-        exception.setStatusCode(statusCode);
-        exception.setErrorCode(errorCode);
-        return exception;
-    }
-
-    /**
-     * Records the SDK calls without touching the network: every method used by
-     * {@link Ks3StorageClient} is overridden, the base client is never used.
-     */
     private static final class RecordingKs3Client extends Ks3Client {
-
         private final List<String> calls = new ArrayList<>();
-        private final List<Integer> presignedExpiries = new ArrayList<>();
-        private boolean bucketExistsResult = true;
-        private boolean objectExistsResult = true;
-        private Ks3ServiceException bucketExistsFailure;
-        private Ks3ServiceException getObjectFailure;
-        private String createdBucket;
-        private String uploadedBucket;
-        private String uploadedKey;
-        private ObjectMetadata uploadedMetadata;
-        private String deletedKey;
+        private final List<Integer> partNumbers = new ArrayList<>();
+        private final List<Long> partLengths = new ArrayList<>();
+        private final List<String> completedEtags = new ArrayList<>();
+        private long singleLength;
+        private int failPart;
 
         private RecordingKs3Client() {
             super("ak", "sk");
         }
 
         @Override
-        public boolean bucketExists(String bucket) {
-            calls.add("bucketExists");
-            if (bucketExistsFailure != null) {
-                throw bucketExistsFailure;
-            }
-            return bucketExistsResult;
-        }
-
-        @Override
-        public Bucket createBucket(String bucket) {
-            calls.add("createBucket");
-            createdBucket = bucket;
-            return null;
-        }
-
-        @Override
         public PutObjectResult putObject(String bucket, String key, InputStream input, ObjectMetadata metadata) {
             calls.add("putObject");
-            uploadedBucket = bucket;
-            uploadedKey = key;
-            uploadedMetadata = metadata;
-            return null;
+            singleLength = metadata.getContentLength();
+            read(input);
+            return new PutObjectResult();
         }
 
         @Override
-        public GetObjectResult getObject(String bucket, String key) {
-            calls.add("getObject");
-            if (getObjectFailure != null) {
-                throw getObjectFailure;
-            }
-            Ks3Object object = new Ks3Object();
-            object.setObjectContent(new ByteArrayInputStream(new byte[0]));
-            GetObjectResult result = new GetObjectResult();
-            result.setObject(object);
+        public InitiateMultipartUploadResult initiateMultipartUpload(InitiateMultipartUploadRequest request) {
+            calls.add("initiateMultipartUpload");
+            InitiateMultipartUploadResult result = new InitiateMultipartUploadResult();
+            result.setUploadId("upload-1");
             return result;
         }
 
         @Override
-        public Ks3Result deleteObject(String bucket, String key) {
-            calls.add("deleteObject");
-            deletedKey = key;
-            return null;
+        public PartETag uploadPart(UploadPartRequest request) {
+            calls.add("uploadPart");
+            partNumbers.add(request.getPartNumber());
+            partLengths.add(request.getPartSize());
+            read(request.getInputStream());
+            if (request.getPartNumber() == failPart) {
+                throw new IllegalStateException("part failed");
+            }
+            return new PartETag(request.getPartNumber(), "etag-" + request.getPartNumber());
         }
 
         @Override
-        public boolean objectExists(String bucket, String key) {
-            calls.add("objectExists");
-            return objectExistsResult;
+        public CompleteMultipartUploadResult completeMultipartUpload(
+                String bucket, String key, String uploadId, List<PartETag> parts) {
+            calls.add("completeMultipartUpload");
+            parts.stream().map(PartETag::geteTag).forEach(completedEtags::add);
+            return new CompleteMultipartUploadResult();
         }
 
         @Override
-        public String generatePresignedUrl(String bucket, String key, int expires) {
-            calls.add("generatePresignedUrl");
-            presignedExpiries.add(expires);
-            return "http://" + bucket + ".ks3-cn-beijing.ksyuncs.com/" + key + "?Expires=" + expires + "&Signature=x";
+        public com.ksyun.ks3.dto.Ks3Result abortMultipartUpload(String bucket, String key, String uploadId) {
+            calls.add("abortMultipartUpload");
+            return new com.ksyun.ks3.dto.Ks3Result();
+        }
+
+        @Override
+        public boolean objectExists(String bucket, String key) throws Ks3ServiceException {
+            return false;
+        }
+
+        private static void read(InputStream input) {
+            try {
+                input.readAllBytes();
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+    }
+
+    private static final class TrackingInputStream extends ByteArrayInputStream {
+        private boolean closed;
+
+        private TrackingInputStream(byte[] bytes) {
+            super(bytes);
+        }
+
+        @Override
+        public void close() throws IOException {
+            closed = true;
+            super.close();
         }
     }
 }

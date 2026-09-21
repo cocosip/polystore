@@ -2,8 +2,7 @@ package io.github.cocosip.polystore.huaweiobs;
 
 import com.obs.services.ObsClient;
 import io.github.cocosip.polystore.ContainerConfiguration;
-import io.github.cocosip.polystore.DefaultStorageContainer;
-import io.github.cocosip.polystore.StorageContainer;
+import io.github.cocosip.polystore.StorageBackend;
 import io.github.cocosip.polystore.StorageProvider;
 import java.util.Collection;
 import java.util.List;
@@ -43,17 +42,15 @@ public class HuaweiObsStorageProvider implements StorageProvider {
     }
 
     @Override
-    public StorageContainer createContainer(ContainerConfiguration config) {
+    public StorageBackend createBackend(ContainerConfiguration config) {
         HuaweiObsStorageConfiguration configuration = HuaweiObsStorageConfiguration.from(config);
 
         ObsClient client =
                 new ObsClient(configuration.accessKeyId(), configuration.accessKeySecret(), configuration.endpoint());
-        return DefaultStorageContainer.from(
-                config,
-                new HuaweiObsStorageClient(
-                        client,
-                        configuration.bucketName(),
-                        configuration.urlExpirySeconds(),
-                        configuration.createContainerIfNotExists()));
+        return new HuaweiObsStorageClient(
+                client,
+                configuration.bucketName(),
+                configuration.urlExpirySeconds(),
+                configuration.createContainerIfNotExists());
     }
 }

@@ -4,9 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
+import io.github.cocosip.polystore.DefaultStorageContainer;
 import io.github.cocosip.polystore.StorageContainer;
-import io.github.cocosip.polystore.UrlArgs;
-import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -20,12 +20,13 @@ class AwsStorageProviderTest {
             "secretAccessKey", "wJalrXUtnFEMI");
 
     private static StorageContainer container(Map<String, Object> properties) {
-        return new AwsStorageProvider()
-                .createContainer(ContainerConfiguration.builder()
-                        .name("archive")
-                        .type("aws")
-                        .properties(properties)
-                        .build());
+        ContainerConfiguration configuration = ContainerConfiguration.builder()
+                .name("archive")
+                .type("aws")
+                .properties(properties)
+                .build();
+        AwsStorageProvider provider = new AwsStorageProvider();
+        return DefaultStorageContainer.from(configuration, provider.createBackend(configuration));
     }
 
     private static Map<String, Object> withCreateContainer() {
@@ -49,7 +50,8 @@ class AwsStorageProviderTest {
 
     @Test
     void presignedUrlShouldTargetAmazonS3() {
-        String url = container(STATIC).getUrl("2024/dump.sql");
+        String url =
+                container(STATIC).getAccessUrl("2024/dump.sql", Instant.now().plusSeconds(601), false);
 
         assertThat(url).startsWith("https://my-bucket.s3.amazonaws.com/");
         assertThat(url).contains("X-Amz-Signature");
@@ -57,12 +59,9 @@ class AwsStorageProviderTest {
 
     @Test
     void explicitUrlArgsExpiryShouldOverrideContainerDefault() {
-        String url = container(STATIC)
-                .getUrl(
-                        "a.txt",
-                        UrlArgs.builder().expiry(Duration.ofMinutes(10)).build());
+        String url = container(STATIC).getAccessUrl("a.txt", Instant.now().plusSeconds(601), false);
 
-        assertThat(url).contains("X-Amz-Expires=600");
+        assertThat(url).containsPattern("X-Amz-Expires=60[01]");
     }
 
     @Test
@@ -93,21 +92,21 @@ class AwsStorageProviderTest {
     void missingRequiredParametersShouldBeRejected() {
         AwsStorageProvider provider = new AwsStorageProvider();
 
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("aws")
                         .properties(Map.of("containerName", "b", "accessKeyId", "a", "secretAccessKey", "s"))
                         .build()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("region");
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("aws")
                         .properties(Map.of("region", "us-east-1", "accessKeyId", "a", "secretAccessKey", "s"))
                         .build()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("containerName");
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("aws")
                         .properties(Map.of("region", "us-east-1", "containerName", "b"))
@@ -124,7 +123,7 @@ class AwsStorageProviderTest {
         missingName.put("containerName", "b");
         missingName.put("useTemporaryFederatedCredentials", true);
 
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("aws")
                         .properties(missingName)
@@ -134,7 +133,7 @@ class AwsStorageProviderTest {
 
         Map<String, Object> missingPolicy = new HashMap<>(missingName);
         missingPolicy.put("name", "session");
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("aws")
                         .properties(missingPolicy)
@@ -151,6 +150,7 @@ class AwsStorageProviderTest {
                 "Aws.AccessKeyId", "AKIAIOSFODNN7EXAMPLE",
                 "Aws.SecretAccessKey", "wJalrXUtnFEMI"));
 
-        assertThat(container.getUrl("a.txt")).startsWith("https://my-bucket.s3.amazonaws.com/");
+        assertThat(container.getAccessUrl("a.txt", Instant.now().plusSeconds(61), false))
+                .startsWith("https://my-bucket.s3.amazonaws.com/");
     }
 }

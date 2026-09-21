@@ -1,8 +1,7 @@
 package io.github.cocosip.polystore.minio;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
-import io.github.cocosip.polystore.DefaultStorageContainer;
-import io.github.cocosip.polystore.StorageContainer;
+import io.github.cocosip.polystore.StorageBackend;
 import io.github.cocosip.polystore.StorageProvider;
 import io.minio.MinioClient;
 
@@ -36,19 +35,17 @@ public class MinioStorageProvider implements StorageProvider {
     }
 
     @Override
-    public StorageContainer createContainer(ContainerConfiguration config) {
+    public StorageBackend createBackend(ContainerConfiguration config) {
         MinioStorageConfiguration configuration = MinioStorageConfiguration.from(config);
 
         MinioClient.Builder builder = MinioClient.builder()
                 .endpoint(configuration.endPoint())
                 .credentials(configuration.accessKey(), configuration.secretKey())
                 .region(configuration.region());
-        return DefaultStorageContainer.from(
-                config,
-                new MinioStorageClient(
-                        builder.build(),
-                        configuration.bucketName(),
-                        configuration.urlExpirySeconds(),
-                        configuration.createBucketIfNotExists()));
+        return new MinioStorageClient(
+                builder.build(),
+                configuration.bucketName(),
+                configuration.urlExpirySeconds(),
+                configuration.createBucketIfNotExists());
     }
 }

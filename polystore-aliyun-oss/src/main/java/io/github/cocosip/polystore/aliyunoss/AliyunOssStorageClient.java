@@ -3,191 +3,202 @@ package io.github.cocosip.polystore.aliyunoss;
 import com.aliyun.oss.OSS;
 import com.aliyun.oss.OSSErrorCode;
 import com.aliyun.oss.OSSException;
+import com.aliyun.oss.model.AbortMultipartUploadRequest;
+import com.aliyun.oss.model.CompleteMultipartUploadRequest;
 import com.aliyun.oss.model.GetObjectRequest;
+import com.aliyun.oss.model.InitiateMultipartUploadRequest;
 import com.aliyun.oss.model.OSSObject;
 import com.aliyun.oss.model.ObjectMetadata;
+import com.aliyun.oss.model.PartETag;
 import com.aliyun.oss.model.PutObjectRequest;
-import io.github.cocosip.polystore.SaveArgs;
-import io.github.cocosip.polystore.StorageClient;
-import io.github.cocosip.polystore.UrlArgs;
-import io.github.cocosip.polystore.exception.StorageFileNotFoundException;
+import com.aliyun.oss.model.UploadPartRequest;
+import io.github.cocosip.polystore.StorageBackend;
+import io.github.cocosip.polystore.StorageProviderAccessArgs;
+import io.github.cocosip.polystore.StorageProviderDeleteArgs;
+import io.github.cocosip.polystore.StorageProviderDownloadArgs;
+import io.github.cocosip.polystore.StorageProviderExistsArgs;
+import io.github.cocosip.polystore.StorageProviderGetArgs;
+import io.github.cocosip.polystore.StorageProviderSaveArgs;
+import io.github.cocosip.polystore.exception.StorageFileAlreadyExistsException;
 import io.github.cocosip.polystore.exception.StorageOperationException;
-import java.io.ByteArrayInputStream;
+import io.github.cocosip.polystore.util.ExactLengthInputStream;
 import java.io.InputStream;
-import java.util.Collection;
+import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 import java.util.function.Supplier;
 
-/**
- * Alibaba Cloud OSS-backed {@link StorageClient}. {@code getUrl} returns a presigned GET URL
- * computed locally (no network round trip).
- *
- * <p>{@code save} buffers the stream in memory to set the content length required by the SDK. When
- * {@code createContainerIfNotExists} is enabled the bucket is created lazily right before the first
- * upload, exactly like the reference provider. The OSS client itself is created on first use, so
- * building the container performs no network call.</p>
- */
-public final class AliyunOssStorageClient implements StorageClient {
-
+/** Alibaba Cloud OSS {@link StorageBackend}. */
+public final class AliyunOssStorageClient implements StorageBackend {
+    private static final long MAX_PARTS = 10_000;
     private final Supplier<OSS> clientSupplier;
     private final String bucketName;
-    private final long urlExpirySeconds;
     private final boolean createContainerIfNotExists;
     private volatile OSS client;
 
-    /**
-     * Creates the client.
-     *
-     * @param client                     initialized OSS client, never {@code null}
-     * @param bucketName                 target bucket, never {@code null}
-     * @param urlExpirySeconds           default presigned URL expiry in seconds
-     * @param createContainerIfNotExists create the bucket before the first upload when it is absent
-     */
+    /** Creates the OSS backend. */
     public AliyunOssStorageClient(
-            OSS client, String bucketName, long urlExpirySeconds, boolean createContainerIfNotExists) {
-        this(() -> client, bucketName, urlExpirySeconds, createContainerIfNotExists);
+            OSS client, String bucketName, long ignoredUrlExpirySeconds, boolean createContainerIfNotExists) {
+        this(() -> client, bucketName, ignoredUrlExpirySeconds, createContainerIfNotExists);
     }
 
-    /**
-     * Creates the client from a supply of the OSS client, resolved on first use so container
-     * construction stays network-free even when STS temporary credentials are used.
-     *
-     * @param clientSupplier             supplies the OSS client, never {@code null}
-     * @param bucketName                 target bucket, never {@code null}
-     * @param urlExpirySeconds           default presigned URL expiry in seconds
-     * @param createContainerIfNotExists create the bucket before the first upload when it is absent
-     */
     AliyunOssStorageClient(
             Supplier<OSS> clientSupplier,
             String bucketName,
-            long urlExpirySeconds,
+            long ignoredUrlExpirySeconds,
             boolean createContainerIfNotExists) {
         this.clientSupplier = clientSupplier;
         this.bucketName = bucketName;
-        this.urlExpirySeconds = urlExpirySeconds;
         this.createContainerIfNotExists = createContainerIfNotExists;
     }
 
     @Override
-    public void save(String fileName, InputStream inputStream, SaveArgs args) {
-        byte[] content;
+    public String save(StorageProviderSaveArgs args) {
+        OSS oss = client();
+        if (createContainerIfNotExists) ensureContainer(oss);
+        if (!args.isOverrideExisting() && oss.doesObjectExist(bucketName, args.getFileId()))
+            throw new StorageFileAlreadyExistsException(args.getFileId());
+        boolean multipart = args.getConfiguration().isEnableAutoMultiPartUpload()
+                && args.getContentLength() > args.getConfiguration().getMultiPartUploadMinFileSize();
+        return multipart ? multipartSave(oss, args) : singleSave(oss, args);
+    }
+
+    private String singleSave(OSS oss, StorageProviderSaveArgs args) {
+        ExactLengthInputStream stream = new ExactLengthInputStream(args.getFileStream(), args.getContentLength());
         try {
-            content = inputStream.readAllBytes();
+            oss.putObject(new PutObjectRequest(bucketName, args.getFileId(), stream, metadata(args, true)));
+            stream.verifyComplete();
+            return args.getFileId();
         } catch (Exception e) {
-            throw new StorageOperationException("Failed to read stream for: " + fileName, e);
+            throw failure("Failed to save file: " + args.getFileId(), e);
         }
-        OSS ossClient = client();
-        if (createContainerIfNotExists) {
-            ensureContainer(ossClient);
-        }
+    }
+
+    private String multipartSave(OSS oss, StorageProviderSaveArgs args) {
+        long partSize = args.getConfiguration().getMultiPartUploadShardingSize();
+        long count = partCount(args.getContentLength(), partSize);
+        if (count > MAX_PARTS) throw new IllegalStateException("Multipart upload exceeds 10000 parts");
+        String uploadId = null;
         try {
-            ObjectMetadata metadata = new ObjectMetadata();
-            metadata.setContentLength(content.length);
-            if (args.getContentType() != null) {
-                metadata.setContentType(args.getContentType());
+            uploadId = oss.initiateMultipartUpload(
+                            new InitiateMultipartUploadRequest(bucketName, args.getFileId(), metadata(args, false)))
+                    .getUploadId();
+            ExactLengthInputStream total = new ExactLengthInputStream(args.getFileStream(), args.getContentLength());
+            List<PartETag> parts = new ArrayList<>((int) count);
+            long remaining = args.getContentLength();
+            for (int number = 1; remaining > 0; number++) {
+                long length = Math.min(partSize, remaining);
+                ExactLengthInputStream part = new ExactLengthInputStream(total, length);
+                var result = oss.uploadPart(
+                        new UploadPartRequest(bucketName, args.getFileId(), uploadId, number, part, length));
+                part.verifyComplete();
+                parts.add(result.getPartETag());
+                remaining -= length;
             }
-            if (!args.getMetadata().isEmpty()) {
-                args.getMetadata().forEach(metadata::addUserMetadata);
-            }
-            ossClient.putObject(
-                    new PutObjectRequest(bucketName, fileName, new ByteArrayInputStream(content), metadata));
+            total.verifyComplete();
+            oss.completeMultipartUpload(
+                    new CompleteMultipartUploadRequest(bucketName, args.getFileId(), uploadId, parts));
+            return args.getFileId();
         } catch (Exception e) {
-            throw new StorageOperationException("Failed to save file: " + fileName, e);
-        }
-    }
-
-    @Override
-    public InputStream get(String fileName) {
-        try {
-            OSSObject object = client().getObject(new GetObjectRequest(bucketName, fileName));
-            return object.getObjectContent();
-        } catch (OSSException e) {
-            if (OSSErrorCode.NO_SUCH_KEY.equals(e.getErrorCode())) {
-                throw new StorageFileNotFoundException(fileName);
-            }
-            throw new StorageOperationException("Failed to get file: " + fileName, e);
-        } catch (Exception e) {
-            throw new StorageOperationException("Failed to get file: " + fileName, e);
-        }
-    }
-
-    @Override
-    public void delete(String fileName) {
-        try {
-            client().deleteObject(bucketName, fileName);
-        } catch (Exception e) {
-            throw new StorageOperationException("Failed to delete file: " + fileName, e);
-        }
-    }
-
-    @Override
-    public boolean exists(String fileName) {
-        try {
-            return client().doesObjectExist(bucketName, fileName);
-        } catch (Exception e) {
-            throw new StorageOperationException("Failed to check file: " + fileName, e);
-        }
-    }
-
-    @Override
-    public String getUrl(String fileName, UrlArgs args) {
-        long expirySeconds = UrlArgs.DEFAULT_EXPIRY.equals(args.getExpiry())
-                ? urlExpirySeconds
-                : args.getExpiry().toSeconds();
-        try {
-            Date expiration = new Date(System.currentTimeMillis() + expirySeconds * 1000);
-            return client().generatePresignedUrl(bucketName, fileName, expiration)
-                    .toString();
-        } catch (Exception e) {
-            throw new StorageOperationException("Failed to presign URL for: " + fileName, e);
-        }
-    }
-
-    @Override
-    public void deleteAll(Collection<String> fileNames) {
-        fileNames.forEach(this::delete);
-    }
-
-    /** Resolves the OSS client once and reuses it afterwards. */
-    private OSS client() {
-        OSS current = client;
-        if (current == null) {
-            synchronized (this) {
-                current = client;
-                if (current == null) {
-                    current = clientSupplier.get();
-                    client = current;
+            if (uploadId != null) {
+                try {
+                    oss.abortMultipartUpload(new AbortMultipartUploadRequest(bucketName, args.getFileId(), uploadId));
+                } catch (Exception abortFailure) {
+                    e.addSuppressed(abortFailure);
                 }
             }
+            throw failure("Failed to save file: " + args.getFileId(), e);
         }
+    }
+
+    @Override
+    public InputStream getOrNull(StorageProviderGetArgs args) {
+        try {
+            OSSObject object = client().getObject(new GetObjectRequest(bucketName, args.getFileId()));
+            return object.getObjectContent();
+        } catch (OSSException e) {
+            if (OSSErrorCode.NO_SUCH_KEY.equals(e.getErrorCode())) return null;
+            throw failure("Failed to get file: " + args.getFileId(), e);
+        } catch (Exception e) {
+            throw failure("Failed to get file: " + args.getFileId(), e);
+        }
+    }
+
+    @Override
+    public boolean delete(StorageProviderDeleteArgs args) {
+        if (!client().doesObjectExist(bucketName, args.getFileId())) return false;
+        try {
+            client().deleteObject(bucketName, args.getFileId());
+            return true;
+        } catch (Exception e) {
+            throw failure("Failed to delete file: " + args.getFileId(), e);
+        }
+    }
+
+    @Override
+    public boolean exists(StorageProviderExistsArgs args) {
+        try {
+            return client().doesObjectExist(bucketName, args.getFileId());
+        } catch (Exception e) {
+            throw failure("Failed to check file: " + args.getFileId(), e);
+        }
+    }
+
+    @Override
+    public boolean download(StorageProviderDownloadArgs args) {
+        InputStream stream = getOrNull(
+                new StorageProviderGetArgs(args.getContainerName(), args.getConfiguration(), args.getFileId()));
+        if (stream == null) return false;
+        try (stream) {
+            Files.copy(stream, args.getPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            return true;
+        } catch (Exception e) {
+            throw failure("Failed to download file: " + args.getFileId(), e);
+        }
+    }
+
+    @Override
+    public String getAccessUrl(StorageProviderAccessArgs args) {
+        if (args.isCheckFileExist() && !client().doesObjectExist(bucketName, args.getFileId())) return "";
+        try {
+            return client().generatePresignedUrl(bucketName, args.getFileId(), Date.from(args.getExpires()))
+                    .toString();
+        } catch (Exception e) {
+            throw failure("Failed to presign URL for: " + args.getFileId(), e);
+        }
+    }
+
+    private ObjectMetadata metadata(StorageProviderSaveArgs args, boolean length) {
+        ObjectMetadata metadata = new ObjectMetadata();
+        if (length) metadata.setContentLength(args.getContentLength());
+        if (args.getContentType() != null) metadata.setContentType(args.getContentType());
+        args.getMetadata().forEach(metadata::addUserMetadata);
+        return metadata;
+    }
+
+    private OSS client() {
+        OSS current = client;
+        if (current == null)
+            synchronized (this) {
+                if ((current = client) == null) client = current = clientSupplier.get();
+            }
         return current;
     }
 
-    /**
-     * Creates the bucket when it is absent; a present bucket is left untouched.
-     *
-     * @param ossClient resolved OSS client
-     * @throws StorageOperationException if the existence check or the creation fails
-     */
-    private void ensureContainer(OSS ossClient) {
-        if (!bucketExists(ossClient)) {
-            createBucket(ossClient);
+    private void ensureContainer(OSS oss) {
+        try {
+            if (!oss.doesBucketExist(bucketName)) oss.createBucket(bucketName);
+        } catch (Exception e) {
+            throw failure("Failed to ensure bucket: " + bucketName, e);
         }
     }
 
-    private boolean bucketExists(OSS ossClient) {
-        try {
-            return ossClient.doesBucketExist(bucketName);
-        } catch (Exception e) {
-            throw new StorageOperationException("Failed to check bucket: " + bucketName, e);
-        }
+    private static long partCount(long length, long size) {
+        return length == 0 ? 0 : 1 + ((length - 1) / size);
     }
 
-    private void createBucket(OSS ossClient) {
-        try {
-            ossClient.createBucket(bucketName);
-        } catch (Exception e) {
-            throw new StorageOperationException("Failed to create bucket: " + bucketName, e);
-        }
+    private static StorageOperationException failure(String message, Exception cause) {
+        return new StorageOperationException(message, cause);
     }
 }

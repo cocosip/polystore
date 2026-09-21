@@ -26,6 +26,30 @@
       "type": "io.github.cocosip.polystore.TenantIsolationMode",
       "defaultValue": "NONE",
       "description": "Tenant isolation mode; PATH_PREFIX transparently prefixes every file path with the resolved tenant id."
+    },
+    {
+      "name": "polystore.containers[0].enable-auto-multi-part-upload",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Enables automatic multipart upload when the declared content length is greater than the configured threshold."
+    },
+    {
+      "name": "polystore.containers[0].multi-part-upload-min-file-size",
+      "type": "java.lang.Long",
+      "defaultValue": 104857600,
+      "description": "Content-length threshold in bytes; equality remains a single upload."
+    },
+    {
+      "name": "polystore.containers[0].multi-part-upload-sharding-size",
+      "type": "java.lang.Long",
+      "defaultValue": 5242880,
+      "description": "Multipart part size in bytes."
+    },
+    {
+      "name": "polystore.containers[0].http-access",
+      "type": "java.lang.Boolean",
+      "defaultValue": true,
+      "description": "Controls whether access URL generation is enabled for the container."
     }
   ],
   "hints": [

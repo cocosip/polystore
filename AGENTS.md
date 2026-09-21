@@ -38,8 +38,9 @@ passes with every test green.
 - File-related exceptions keep the `Storage` prefix (`StorageFileNotFoundException`,
   `StorageFileAlreadyExistsException`) because the plain names clash with `java.io` /
   `java.nio.file`.
-- Arguments types (`SaveArgs`, `UrlArgs`, `ContainerConfiguration`) are immutable: builder
-  pattern, defensive copies, read-only maps.
+- Argument types (`StorageSaveOptions`, `StorageProvider*Args`,
+  `ContainerConfiguration`) are immutable: builder or validated constructors, defensive copies,
+  read-only maps. The caller-owned `InputStream` is the one intentional shared reference.
 - Spotbugs is a verify gate. When wrapping an SDK client or exposing a binder list triggers
   `EI_EXPOSE_REP`/`EI_EXPOSE_REP2`, suppress with `@SuppressFBWarnings` plus a `justification`
   explaining why the sharing is intentional — never suppress silently.
@@ -79,6 +80,16 @@ passes with every test green.
   SDK and its native signer.
   `create*IfNotExists` creates the bucket/container lazily on the first save, so container
   construction never touches the network.
+- Public stream saves follow the SharpAbp parameter order with the Java-only
+  `InputStream + contentLength` pair. `contentLength` is the exact remaining byte count;
+  `InputStream.available()` is never a file length. Backends implement `StorageBackend` and
+  receive immutable `StorageProvider*Args` from `DefaultStorageContainer`; a
+  `StorageProvider` only parses configuration and creates the backend.
+- Object-storage backends automatically select native multipart upload when
+  `enableAutoMultiPartUpload` is true and the declared length is greater than
+  `multiPartUploadMinFileSize`. Use `multiPartUploadShardingSize` for parts, keep completion tags
+  ordered, abort best-effort after initiation failures, preserve the original exception, never
+  close the caller stream and never buffer the complete object with `readAllBytes()`.
 - Do not ship a backend without a cleanly usable third-party driver. If the only driver requires
   hacks (reflective assembly, protocol-level workarounds), drop the backend — see the FastDFS
   decision in [`docs/development-plan.md`](docs/development-plan.md).

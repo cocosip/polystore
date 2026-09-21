@@ -3,7 +3,6 @@ package io.github.cocosip.polystore.spring;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
-import io.github.cocosip.polystore.SaveArgs;
 import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -33,8 +32,8 @@ class PolystoreBuilderTest {
                 .build();
 
         assertThat(manager.containerNames()).containsExactly("images", "dicom");
-        manager.getDefaultContainer().save("a.txt", new ByteArrayInputStream(new byte[0]), SaveArgs.defaults());
-        manager.getContainer("dicom").save("b.txt", new ByteArrayInputStream(new byte[0]), SaveArgs.defaults());
+        manager.getDefaultContainer().save("a.txt", new ByteArrayInputStream(new byte[0]), 0, ".txt");
+        manager.getContainer("dicom").save("b.txt", new ByteArrayInputStream(new byte[0]), 0, ".txt");
 
         assertThat(provider.clientFor("images").store()).containsKey("a.txt");
         assertThat(provider.clientFor("dicom").store()).containsKey("tenant-a/b.txt");

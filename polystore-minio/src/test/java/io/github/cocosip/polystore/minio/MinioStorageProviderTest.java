@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
+import io.github.cocosip.polystore.DefaultStorageContainer;
 import io.github.cocosip.polystore.StorageContainer;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -18,13 +20,18 @@ class MinioStorageProviderTest {
             "bucketName", "dicom",
             "region", "us-east-1");
 
+    private static ContainerConfiguration configuration(Map<String, Object> properties) {
+        return ContainerConfiguration.builder()
+                .name("dicom")
+                .type("minio")
+                .properties(properties)
+                .build();
+    }
+
     private static StorageContainer container(Map<String, Object> properties) {
-        return new MinioStorageProvider()
-                .createContainer(ContainerConfiguration.builder()
-                        .name("dicom")
-                        .type("minio")
-                        .properties(properties)
-                        .build());
+        ContainerConfiguration configuration = configuration(properties);
+        MinioStorageProvider provider = new MinioStorageProvider();
+        return DefaultStorageContainer.from(configuration, provider.createBackend(configuration));
     }
 
     @Test
@@ -42,20 +49,21 @@ class MinioStorageProviderTest {
     }
 
     @Test
-    void presignedUrlShouldBeComputedOffline() {
-        String url = container(FULL).getUrl("2024/scan.dcm");
+    void presignedUrlShouldBeComputedOfflineForTheRequestedExpiry() {
+        String url = container(FULL).getAccessUrl("2024/scan.dcm", Instant.now().plusSeconds(61), false);
 
         assertThat(url).startsWith("http://minio.internal:9000/dicom/2024/scan.dcm");
         assertThat(url).contains("X-Amz-Signature=");
-        assertThat(url).contains("X-Amz-Expires=3600");
+        assertThat(url).containsPattern("X-Amz-Expires=6[01]");
     }
 
     @Test
-    void urlExpiryParameterShouldControlPresignExpiry() {
+    void urlExpiryExtensionShouldRemainParseable() {
         Map<String, Object> properties = new HashMap<>(FULL);
         properties.put("urlExpiry", 60);
 
-        assertThat(container(properties).getUrl("a.txt")).contains("X-Amz-Expires=60");
+        assertThat(MinioStorageConfiguration.from(configuration(properties)).urlExpirySeconds())
+                .isEqualTo(60);
     }
 
     @Test
@@ -63,12 +71,14 @@ class MinioStorageProviderTest {
         Map<String, Object> properties = new HashMap<>(FULL);
         properties.put("withSSL", true);
 
-        assertThat(container(properties).getUrl("a.txt")).startsWith("https://minio.internal:9000/");
+        assertThat(container(properties).getAccessUrl("a.txt", Instant.now().plusSeconds(61), false))
+                .startsWith("https://minio.internal:9000/");
     }
 
     @Test
     void httpShouldBeTheDefaultProtocol() {
-        assertThat(container(FULL).getUrl("a.txt")).startsWith("http://minio.internal:9000/");
+        assertThat(container(FULL).getAccessUrl("a.txt", Instant.now().plusSeconds(61), false))
+                .startsWith("http://minio.internal:9000/");
     }
 
     @Test
@@ -77,28 +87,29 @@ class MinioStorageProviderTest {
         properties.put("endPoint", "https://minio.internal:9000");
         properties.put("withSSL", false);
 
-        assertThat(container(properties).getUrl("a.txt")).startsWith("https://minio.internal:9000/");
+        assertThat(container(properties).getAccessUrl("a.txt", Instant.now().plusSeconds(61), false))
+                .startsWith("https://minio.internal:9000/");
     }
 
     @Test
     void missingRequiredParametersShouldBeRejected() {
         MinioStorageProvider provider = new MinioStorageProvider();
 
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("minio")
                         .properties(Map.of("accessKey", "a", "secretKey", "s", "bucketName", "b"))
                         .build()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("endPoint");
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("minio")
                         .properties(Map.of("endPoint", "http://x", "secretKey", "s", "bucketName", "b"))
                         .build()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("accessKey");
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("minio")
                         .properties(Map.of("endPoint", "http://x", "accessKey", "a", "secretKey", "s"))
@@ -113,7 +124,6 @@ class MinioStorageProviderTest {
         properties.put("endPoint", "127.0.0.1:1");
         properties.put("createBucketIfNotExists", true);
 
-        // the bucket is created lazily on save, so an unreachable endpoint must not fail here
         assertThat(container(properties).getProviderType()).isEqualTo("minio");
     }
 
@@ -126,6 +136,7 @@ class MinioStorageProviderTest {
                 "Minio.BucketName", "dicom",
                 "Minio.WithSSL", true));
 
-        assertThat(container.getUrl("a.txt")).startsWith("https://minio.internal:9000/dicom/a.txt");
+        assertThat(container.getAccessUrl("a.txt", Instant.now().plusSeconds(61), false))
+                .startsWith("https://minio.internal:9000/dicom/a.txt");
     }
 }

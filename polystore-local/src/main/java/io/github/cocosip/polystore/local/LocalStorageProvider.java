@@ -1,9 +1,7 @@
 package io.github.cocosip.polystore.local;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
-import io.github.cocosip.polystore.DefaultStorageContainer;
-import io.github.cocosip.polystore.StorageClient;
-import io.github.cocosip.polystore.StorageContainer;
+import io.github.cocosip.polystore.StorageBackend;
 import io.github.cocosip.polystore.StorageProvider;
 import java.nio.file.Paths;
 import java.util.Collection;
@@ -39,15 +37,14 @@ public class LocalStorageProvider implements StorageProvider {
     }
 
     @Override
-    public StorageContainer createContainer(ContainerConfiguration config) {
+    public StorageBackend createBackend(ContainerConfiguration config) {
         LocalStorageConfiguration configuration = LocalStorageConfiguration.from(config);
 
-        StorageClient client = new LocalStorageClient(
+        return new LocalStorageClient(
                 Paths.get(configuration.basePath()).toAbsolutePath().normalize(),
                 config.getName(),
                 configuration.appendContainerNameToBasePath(),
                 configuration.httpServer(),
                 configuration.createDirectories());
-        return DefaultStorageContainer.from(config, client);
     }
 }

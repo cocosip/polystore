@@ -1,139 +1,130 @@
 package io.github.cocosip.polystore.azure;
 
-import com.azure.core.http.rest.Response;
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
-import com.azure.storage.blob.models.BlobStorageException;
+import com.azure.storage.blob.models.BlobHttpHeaders;
+import com.azure.storage.blob.models.ParallelTransferOptions;
 import com.azure.storage.blob.options.BlobParallelUploadOptions;
 import com.azure.storage.blob.sas.BlobSasPermission;
 import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
-import io.github.cocosip.polystore.SaveArgs;
-import io.github.cocosip.polystore.StorageClient;
-import io.github.cocosip.polystore.UrlArgs;
-import io.github.cocosip.polystore.exception.StorageFileNotFoundException;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+import io.github.cocosip.polystore.StorageBackend;
+import io.github.cocosip.polystore.StorageProviderAccessArgs;
+import io.github.cocosip.polystore.StorageProviderDeleteArgs;
+import io.github.cocosip.polystore.StorageProviderDownloadArgs;
+import io.github.cocosip.polystore.StorageProviderExistsArgs;
+import io.github.cocosip.polystore.StorageProviderGetArgs;
+import io.github.cocosip.polystore.StorageProviderSaveArgs;
+import io.github.cocosip.polystore.exception.StorageFileAlreadyExistsException;
 import io.github.cocosip.polystore.exception.StorageOperationException;
+import io.github.cocosip.polystore.util.ExactLengthInputStream;
 import java.io.InputStream;
+import java.nio.file.Files;
 import java.time.OffsetDateTime;
-import java.util.Collection;
+import java.time.ZoneOffset;
 
-/**
- * Azure Blob-backed {@link StorageClient}. {@code getUrl} appends a read-only SAS token with the
- * container's {@code sasExpiry} validity, unless the caller overrides {@code UrlArgs.expiry}.
- *
- * <p>When {@code createContainerIfNotExists} is enabled the container is created lazily, right
- * before the first upload, exactly like the reference provider: the flag never affects container
- * construction.</p>
- */
-public final class AzureBlobStorageClient implements StorageClient {
-
+/** Azure Blob {@link StorageBackend}. */
+public final class AzureBlobStorageClient implements StorageBackend {
     private final BlobContainerClient containerClient;
-    private final long sasExpirySeconds;
     private final boolean createContainerIfNotExists;
 
-    /**
-     * Creates the client.
-     *
-     * @param containerClient            initialized container client, never {@code null}
-     * @param sasExpirySeconds           default SAS token validity in seconds
-     * @param createContainerIfNotExists create the blob container before the first upload when it
-     *                                   is absent
-     */
-    @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
-            value = "EI_EXPOSE_REP2",
-            justification = "wrapping the backend SDK client is the purpose of this class")
+    /** Creates the Azure Blob backend. */
+    @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "the SDK client is intentionally shared")
     public AzureBlobStorageClient(
-            BlobContainerClient containerClient, long sasExpirySeconds, boolean createContainerIfNotExists) {
+            BlobContainerClient containerClient, long ignoredSasExpirySeconds, boolean createContainerIfNotExists) {
         this.containerClient = containerClient;
-        this.sasExpirySeconds = sasExpirySeconds;
         this.createContainerIfNotExists = createContainerIfNotExists;
     }
 
     @Override
-    public void save(String fileName, InputStream inputStream, SaveArgs args) {
-        if (createContainerIfNotExists) {
-            ensureContainer();
+    public String save(StorageProviderSaveArgs args) {
+        BlobClient blob = containerClient.getBlobClient(args.getFileId());
+        if (!args.isOverrideExisting() && blob.exists()) {
+            throw new StorageFileAlreadyExistsException(args.getFileId());
         }
+        if (createContainerIfNotExists) ensureContainer();
+        ExactLengthInputStream bounded = new ExactLengthInputStream(args.getFileStream(), args.getContentLength());
         try {
-            BlobClient blob = containerClient.getBlobClient(fileName);
-            BlobParallelUploadOptions options = new BlobParallelUploadOptions(inputStream);
+            BlobParallelUploadOptions options = new BlobParallelUploadOptions(bounded, args.getContentLength());
+            boolean multipart = args.getConfiguration().isEnableAutoMultiPartUpload()
+                    && args.getContentLength() > args.getConfiguration().getMultiPartUploadMinFileSize();
+            if (multipart) {
+                ParallelTransferOptions transfer = new ParallelTransferOptions()
+                        .setMaxSingleUploadSizeLong(args.getConfiguration().getMultiPartUploadMinFileSize())
+                        .setBlockSizeLong(args.getConfiguration().getMultiPartUploadShardingSize());
+                options.setParallelTransferOptions(transfer);
+            }
             if (args.getContentType() != null) {
-                options.setHeaders(
-                        new com.azure.storage.blob.models.BlobHttpHeaders().setContentType(args.getContentType()));
+                options.setHeaders(new BlobHttpHeaders().setContentType(args.getContentType()));
             }
-            if (!args.getMetadata().isEmpty()) {
-                options.setMetadata(args.getMetadata());
-            }
-            Response<com.azure.storage.blob.models.BlockBlobItem> response =
-                    blob.uploadWithResponse(options, null, null);
-            assert response != null;
-        } catch (BlobStorageException e) {
-            throw new StorageOperationException("Failed to save file: " + fileName, e);
+            if (!args.getMetadata().isEmpty()) options.setMetadata(args.getMetadata());
+            blob.uploadWithResponse(options, null, null);
+            bounded.verifyComplete();
+            return args.getFileId();
         } catch (Exception e) {
-            throw new StorageOperationException("Failed to save file: " + fileName, e);
+            throw new StorageOperationException("Failed to save file: " + args.getFileId(), e);
         }
     }
 
     @Override
-    public InputStream get(String fileName) {
-        BlobClient blob = containerClient.getBlobClient(fileName);
-        if (!blob.exists()) {
-            throw new StorageFileNotFoundException(fileName);
-        }
+    public InputStream getOrNull(StorageProviderGetArgs args) {
+        BlobClient blob = containerClient.getBlobClient(args.getFileId());
+        if (!blob.exists()) return null;
         try {
             return blob.openInputStream();
         } catch (Exception e) {
-            throw new StorageOperationException("Failed to get file: " + fileName, e);
+            throw new StorageOperationException("Failed to get file: " + args.getFileId(), e);
         }
     }
 
     @Override
-    public void delete(String fileName) {
+    public boolean delete(StorageProviderDeleteArgs args) {
         try {
-            containerClient.getBlobClient(fileName).deleteIfExists();
+            return containerClient.getBlobClient(args.getFileId()).deleteIfExists();
         } catch (Exception e) {
-            throw new StorageOperationException("Failed to delete file: " + fileName, e);
+            throw new StorageOperationException("Failed to delete file: " + args.getFileId(), e);
         }
     }
 
     @Override
-    public boolean exists(String fileName) {
+    public boolean exists(StorageProviderExistsArgs args) {
         try {
-            return containerClient.getBlobClient(fileName).exists();
+            return containerClient.getBlobClient(args.getFileId()).exists();
         } catch (Exception e) {
-            throw new StorageOperationException("Failed to check file: " + fileName, e);
+            throw new StorageOperationException("Failed to check file: " + args.getFileId(), e);
         }
     }
 
     @Override
-    public String getUrl(String fileName, UrlArgs args) {
-        long expirySeconds = UrlArgs.DEFAULT_EXPIRY.equals(args.getExpiry())
-                ? sasExpirySeconds
-                : args.getExpiry().toSeconds();
+    public boolean download(StorageProviderDownloadArgs args) {
+        InputStream stream = getOrNull(
+                new StorageProviderGetArgs(args.getContainerName(), args.getConfiguration(), args.getFileId()));
+        if (stream == null) return false;
+        try (stream) {
+            Files.copy(stream, args.getPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            return true;
+        } catch (Exception e) {
+            throw new StorageOperationException("Failed to download file: " + args.getFileId(), e);
+        }
+    }
+
+    @Override
+    public String getAccessUrl(StorageProviderAccessArgs args) {
         try {
-            BlobClient blob = containerClient.getBlobClient(fileName);
-            BlobServiceSasSignatureValues values = new BlobServiceSasSignatureValues(
-                    OffsetDateTime.now().plusSeconds(expirySeconds), new BlobSasPermission().setReadPermission(true));
+            BlobClient blob = containerClient.getBlobClient(args.getFileId());
+            if (args.isCheckFileExist() && !blob.exists()) return "";
+            OffsetDateTime expires = OffsetDateTime.ofInstant(args.getExpires(), ZoneOffset.UTC);
+            BlobServiceSasSignatureValues values =
+                    new BlobServiceSasSignatureValues(expires, new BlobSasPermission().setReadPermission(true));
             return blob.getBlobUrl() + "?" + blob.generateSas(values);
         } catch (Exception e) {
-            throw new StorageOperationException("Failed to build SAS URL for: " + fileName, e);
+            throw new StorageOperationException("Failed to build SAS URL for: " + args.getFileId(), e);
         }
     }
 
-    @Override
-    public void deleteAll(Collection<String> fileNames) {
-        fileNames.forEach(this::delete);
-    }
-
-    /**
-     * Creates the blob container when it is absent; a present container is left untouched.
-     *
-     * @throws StorageOperationException if the existence check or the creation fails
-     */
     private void ensureContainer() {
         try {
-            if (!containerClient.exists()) {
-                containerClient.create();
-            }
+            if (!containerClient.exists()) containerClient.create();
         } catch (Exception e) {
             throw new StorageOperationException(
                     "Failed to create container: " + containerClient.getBlobContainerName(), e);

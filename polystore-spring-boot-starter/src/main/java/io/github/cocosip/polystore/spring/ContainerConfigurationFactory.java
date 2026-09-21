@@ -98,7 +98,7 @@ public final class ContainerConfigurationFactory {
         if (isBlank(container.getType())) {
             throw new IllegalStateException("polystore.containers[" + container.getName() + "].type must not be blank");
         }
-        return ContainerConfiguration.builder()
+        ContainerConfiguration.Builder builder = ContainerConfiguration.builder()
                 .name(container.getName())
                 .type(container.getType())
                 .isDefault(Boolean.TRUE.equals(container.getDefault()))
@@ -106,8 +106,16 @@ public final class ContainerConfigurationFactory {
                         container.getTenantIsolation() == null
                                 ? TenantIsolationMode.NONE
                                 : container.getTenantIsolation())
-                .properties(section)
-                .build();
+                .enableAutoMultiPartUpload(Boolean.TRUE.equals(container.getEnableAutoMultiPartUpload()))
+                .httpAccess(container.getHttpAccess() == null || container.getHttpAccess())
+                .properties(section);
+        if (container.getMultiPartUploadMinFileSize() != null) {
+            builder.multiPartUploadMinFileSize(container.getMultiPartUploadMinFileSize());
+        }
+        if (container.getMultiPartUploadShardingSize() != null) {
+            builder.multiPartUploadShardingSize(container.getMultiPartUploadShardingSize());
+        }
+        return builder.build();
     }
 
     private static boolean isBlank(String value) {

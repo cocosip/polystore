@@ -1,8 +1,7 @@
 package io.github.cocosip.polystore.spring;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
-import io.github.cocosip.polystore.DefaultStorageContainer;
-import io.github.cocosip.polystore.StorageContainer;
+import io.github.cocosip.polystore.StorageBackend;
 import io.github.cocosip.polystore.StorageProvider;
 import java.util.Collection;
 import java.util.List;
@@ -52,10 +51,10 @@ public final class TestStorageProvider implements StorageProvider {
     }
 
     @Override
-    public StorageContainer createContainer(ContainerConfiguration config) {
+    public StorageBackend createBackend(ContainerConfiguration config) {
         InMemoryStorageClient client = new InMemoryStorageClient();
         clients.put(config.getName(), client);
-        return DefaultStorageContainer.from(config, client);
+        return client;
     }
 
     /**

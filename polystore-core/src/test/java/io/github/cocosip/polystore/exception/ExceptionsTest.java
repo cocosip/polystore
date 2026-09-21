@@ -49,7 +49,7 @@ class ExceptionsTest {
         assertThat(ex.getMessage())
                 .contains("dicom")
                 .contains("PATH_PREFIX")
-                .contains("SaveArgs.tenantId")
+                .contains("StorageSaveOptions.tenantId")
                 .contains("TenantIdSupplier");
     }
 

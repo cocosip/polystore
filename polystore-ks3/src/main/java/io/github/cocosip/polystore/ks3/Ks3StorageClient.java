@@ -2,139 +2,212 @@ package io.github.cocosip.polystore.ks3;
 
 import com.ksyun.ks3.dto.GetObjectResult;
 import com.ksyun.ks3.dto.ObjectMetadata;
+import com.ksyun.ks3.dto.PartETag;
 import com.ksyun.ks3.exception.Ks3ServiceException;
 import com.ksyun.ks3.service.Ks3Client;
+import com.ksyun.ks3.service.request.InitiateMultipartUploadRequest;
+import com.ksyun.ks3.service.request.UploadPartRequest;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
-import io.github.cocosip.polystore.SaveArgs;
-import io.github.cocosip.polystore.StorageClient;
-import io.github.cocosip.polystore.UrlArgs;
-import io.github.cocosip.polystore.exception.StorageFileNotFoundException;
+import io.github.cocosip.polystore.StorageBackend;
+import io.github.cocosip.polystore.StorageProviderAccessArgs;
+import io.github.cocosip.polystore.StorageProviderDeleteArgs;
+import io.github.cocosip.polystore.StorageProviderDownloadArgs;
+import io.github.cocosip.polystore.StorageProviderExistsArgs;
+import io.github.cocosip.polystore.StorageProviderGetArgs;
+import io.github.cocosip.polystore.StorageProviderSaveArgs;
+import io.github.cocosip.polystore.exception.StorageFileAlreadyExistsException;
 import io.github.cocosip.polystore.exception.StorageOperationException;
-import java.io.ByteArrayInputStream;
+import io.github.cocosip.polystore.util.ExactLengthInputStream;
 import java.io.InputStream;
-import java.util.Collection;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
-/**
- * Kingsoft Cloud KS3-backed {@link StorageClient}. All requests are signed with the KS3 native
- * signature by the SDK (see {@link Ks3ConnectionFactory}); {@code getUrl} returns a presigned GET
- * URL computed locally (no network round trip).
- *
- * <p>{@code save} buffers the stream in memory to provide the content length the SDK requires. When
- * {@code createContainerIfNotExists} is enabled the bucket is created lazily right before the first
- * upload, exactly like the reference provider does.</p>
- */
-public final class Ks3StorageClient implements StorageClient {
+/** Kingsoft Cloud KS3 backend using the SDK's native KSS-signed operations. */
+public final class Ks3StorageClient implements StorageBackend {
+    private static final long MAX_PARTS = 10_000;
 
     private final Ks3Client client;
     private final String bucketName;
-    private final int urlExpirySeconds;
     private final boolean createContainerIfNotExists;
 
-    /**
-     * Creates the client.
-     *
-     * @param client                     initialized KS3 client, never {@code null}
-     * @param bucketName                 target bucket, never {@code null}
-     * @param urlExpirySeconds           default presigned URL expiry in seconds
-     * @param createContainerIfNotExists create the bucket before the first upload when absent
-     */
+    /** Creates the KS3 backend. */
     @SuppressFBWarnings(
             value = "EI_EXPOSE_REP2",
             justification = "wrapping the backend SDK client is the purpose of this class")
     public Ks3StorageClient(
-            Ks3Client client, String bucketName, int urlExpirySeconds, boolean createContainerIfNotExists) {
+            Ks3Client client, String bucketName, int ignoredUrlExpirySeconds, boolean createContainerIfNotExists) {
         this.client = client;
         this.bucketName = bucketName;
-        this.urlExpirySeconds = urlExpirySeconds;
         this.createContainerIfNotExists = createContainerIfNotExists;
     }
 
     @Override
-    public void save(String fileName, InputStream inputStream, SaveArgs args) {
-        byte[] content;
-        try {
-            content = inputStream.readAllBytes();
-        } catch (Exception e) {
-            throw new StorageOperationException("Failed to read stream for: " + fileName, e);
-        }
+    public String save(StorageProviderSaveArgs args) {
         if (createContainerIfNotExists) {
             ensureBucket();
         }
+        if (!args.isOverrideExisting() && exists(args.getFileId())) {
+            throw new StorageFileAlreadyExistsException(args.getFileId());
+        }
+        boolean multipart = args.getConfiguration().isEnableAutoMultiPartUpload()
+                && args.getContentLength() > args.getConfiguration().getMultiPartUploadMinFileSize();
+        return multipart ? multipartSave(args) : singleSave(args);
+    }
+
+    private String singleSave(StorageProviderSaveArgs args) {
+        ExactLengthInputStream stream = new ExactLengthInputStream(args.getFileStream(), args.getContentLength());
         try {
-            ObjectMetadata metadata = new ObjectMetadata();
-            metadata.setContentLength(content.length);
-            if (args.getContentType() != null) {
-                metadata.setContentType(args.getContentType());
+            client.putObject(bucketName, args.getFileId(), stream, metadata(args, true));
+            stream.verifyComplete();
+            return args.getFileId();
+        } catch (Exception e) {
+            throw failure("Failed to save file: " + args.getFileId(), e);
+        }
+    }
+
+    private String multipartSave(StorageProviderSaveArgs args) {
+        long partSize = args.getConfiguration().getMultiPartUploadShardingSize();
+        long partCount = partCount(args.getContentLength(), partSize);
+        if (partCount > MAX_PARTS) {
+            throw new IllegalStateException("Multipart upload exceeds 10000 parts");
+        }
+
+        String uploadId = null;
+        try {
+            uploadId = client.initiateMultipartUpload(
+                            new InitiateMultipartUploadRequest(bucketName, args.getFileId(), metadata(args, false)))
+                    .getUploadId();
+            ExactLengthInputStream total = new ExactLengthInputStream(args.getFileStream(), args.getContentLength());
+            List<PartETag> parts = new ArrayList<>((int) partCount);
+            long remaining = args.getContentLength();
+            for (int number = 1; remaining > 0; number++) {
+                long length = Math.min(partSize, remaining);
+                ExactLengthInputStream part = new ExactLengthInputStream(total, length);
+                PartETag result = client.uploadPart(
+                        new UploadPartRequest(bucketName, args.getFileId(), uploadId, number, part, length));
+                part.verifyComplete();
+                parts.add(result);
+                remaining -= length;
             }
-            args.getMetadata().forEach(metadata::setUserMeta);
-            client.putObject(bucketName, fileName, new ByteArrayInputStream(content), metadata);
-        } catch (Ks3ServiceException e) {
-            throw new StorageOperationException("Failed to save file: " + fileName, e);
+            total.verifyComplete();
+            client.completeMultipartUpload(bucketName, args.getFileId(), uploadId, parts);
+            return args.getFileId();
+        } catch (Exception e) {
+            if (uploadId != null) {
+                try {
+                    client.abortMultipartUpload(bucketName, args.getFileId(), uploadId);
+                } catch (Exception abortFailure) {
+                    e.addSuppressed(abortFailure);
+                }
+            }
+            throw failure("Failed to save file: " + args.getFileId(), e);
         }
     }
 
     @Override
-    public InputStream get(String fileName) {
+    public InputStream getOrNull(StorageProviderGetArgs args) {
         try {
-            GetObjectResult result = client.getObject(bucketName, fileName);
+            GetObjectResult result = client.getObject(bucketName, args.getFileId());
             return result.getObject().getObjectContent();
         } catch (Ks3ServiceException e) {
             if (isNotFound(e)) {
-                throw new StorageFileNotFoundException(fileName);
+                return null;
             }
-            throw new StorageOperationException("Failed to get file: " + fileName, e);
+            throw failure("Failed to get file: " + args.getFileId(), e);
+        } catch (Exception e) {
+            throw failure("Failed to get file: " + args.getFileId(), e);
         }
     }
 
     @Override
-    public void delete(String fileName) {
+    public boolean delete(StorageProviderDeleteArgs args) {
+        if (!exists(args.getFileId())) {
+            return false;
+        }
         try {
-            client.deleteObject(bucketName, fileName);
-        } catch (Ks3ServiceException e) {
-            throw new StorageOperationException("Failed to delete file: " + fileName, e);
+            client.deleteObject(bucketName, args.getFileId());
+            return true;
+        } catch (Exception e) {
+            throw failure("Failed to delete file: " + args.getFileId(), e);
         }
     }
 
     @Override
-    public boolean exists(String fileName) {
+    public boolean exists(StorageProviderExistsArgs args) {
+        return exists(args.getFileId());
+    }
+
+    private boolean exists(String fileId) {
         try {
-            return client.objectExists(bucketName, fileName);
+            return client.objectExists(bucketName, fileId);
         } catch (Ks3ServiceException e) {
             if (isNotFound(e)) {
                 return false;
             }
-            throw new StorageOperationException("Failed to check file: " + fileName, e);
+            throw failure("Failed to check file: " + fileId, e);
+        } catch (Exception e) {
+            throw failure("Failed to check file: " + fileId, e);
         }
     }
 
     @Override
-    public String getUrl(String fileName, UrlArgs args) {
-        // the caller's UrlArgs overrides the container-level urlExpiry only when set explicitly;
-        // the untouched default defers to the provider parameter
-        int expirySeconds = UrlArgs.DEFAULT_EXPIRY.equals(args.getExpiry())
-                ? urlExpirySeconds
-                : (int) Math.max(1, Math.min(Integer.MAX_VALUE, args.getExpiry().toSeconds()));
+    public boolean download(StorageProviderDownloadArgs args) {
+        InputStream stream = getOrNull(
+                new StorageProviderGetArgs(args.getContainerName(), args.getConfiguration(), args.getFileId()));
+        if (stream == null) {
+            return false;
+        }
+        try (stream) {
+            Files.copy(stream, args.getPath(), StandardCopyOption.REPLACE_EXISTING);
+            return true;
+        } catch (Exception e) {
+            throw failure("Failed to download file: " + args.getFileId(), e);
+        }
+    }
+
+    @Override
+    public String getAccessUrl(StorageProviderAccessArgs args) {
+        if (args.isCheckFileExist() && !exists(args.getFileId())) {
+            return "";
+        }
+        long seconds =
+                Math.max(1, Duration.between(Instant.now(), args.getExpires()).getSeconds());
+        int expirySeconds = (int) Math.min(Integer.MAX_VALUE, seconds);
         try {
-            return client.generatePresignedUrl(bucketName, fileName, expirySeconds);
-        } catch (Ks3ServiceException e) {
-            throw new StorageOperationException("Failed to presign URL for: " + fileName, e);
+            return client.generatePresignedUrl(bucketName, args.getFileId(), expirySeconds);
+        } catch (Exception e) {
+            throw failure("Failed to presign URL for: " + args.getFileId(), e);
         }
     }
 
-    @Override
-    public void deleteAll(Collection<String> fileNames) {
-        fileNames.forEach(this::delete);
+    private ObjectMetadata metadata(StorageProviderSaveArgs args, boolean includeLength) {
+        ObjectMetadata metadata = new ObjectMetadata();
+        if (includeLength) {
+            metadata.setContentLength(args.getContentLength());
+        }
+        if (args.getContentType() != null) {
+            metadata.setContentType(args.getContentType());
+        }
+        args.getMetadata().forEach(metadata::setUserMeta);
+        return metadata;
     }
 
-    /** Creates the bucket when it is absent; a present bucket is left untouched. */
     private void ensureBucket() {
         try {
             if (!client.bucketExists(bucketName)) {
                 client.createBucket(bucketName);
             }
-        } catch (Ks3ServiceException e) {
-            throw new StorageOperationException("Failed to ensure bucket: " + bucketName, e);
+        } catch (Exception e) {
+            throw failure("Failed to ensure bucket: " + bucketName, e);
         }
+    }
+
+    private static long partCount(long length, long partSize) {
+        return length == 0 ? 0 : 1 + ((length - 1) / partSize);
     }
 
     private static boolean isNotFound(Ks3ServiceException e) {
@@ -142,5 +215,9 @@ public final class Ks3StorageClient implements StorageClient {
                 || e.getStatueCode() == 404
                 || "NoSuchKey".equals(e.getErrorCode())
                 || "NoSuchBucket".equals(e.getErrorCode());
+    }
+
+    private static StorageOperationException failure(String message, Exception cause) {
+        return new StorageOperationException(message, cause);
     }
 }

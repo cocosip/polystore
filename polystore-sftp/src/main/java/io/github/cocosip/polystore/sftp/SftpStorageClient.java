@@ -2,34 +2,27 @@ package io.github.cocosip.polystore.sftp;
 
 import com.jcraft.jsch.ChannelSftp;
 import com.jcraft.jsch.SftpException;
-import io.github.cocosip.polystore.SaveArgs;
-import io.github.cocosip.polystore.StorageClient;
-import io.github.cocosip.polystore.UrlArgs;
-import io.github.cocosip.polystore.exception.StorageFileNotFoundException;
+import io.github.cocosip.polystore.StorageBackend;
+import io.github.cocosip.polystore.StorageProviderAccessArgs;
+import io.github.cocosip.polystore.StorageProviderDeleteArgs;
+import io.github.cocosip.polystore.StorageProviderDownloadArgs;
+import io.github.cocosip.polystore.StorageProviderExistsArgs;
+import io.github.cocosip.polystore.StorageProviderGetArgs;
+import io.github.cocosip.polystore.StorageProviderSaveArgs;
+import io.github.cocosip.polystore.exception.StorageFileAlreadyExistsException;
 import io.github.cocosip.polystore.exception.StorageOperationException;
+import io.github.cocosip.polystore.util.ExactLengthInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.util.Collection;
+import java.nio.file.Files;
 
-/**
- * SFTP-backed {@link StorageClient}. Every operation leases a channel from the
- * {@link SftpConnectionPool}; file paths resolve under the configured {@code basePath}.
- * Read operations buffer the content so the channel can be returned before the caller consumes
- * the data. {@code getUrl} composes {@code urlPrefix + "/" + fileName} without signing.
- */
-public final class SftpStorageClient implements StorageClient {
-
+/** SFTP {@link StorageBackend}. */
+public final class SftpStorageClient implements StorageBackend {
     private final SftpConnectionPool pool;
     private final String basePath;
     private final String urlPrefix;
 
-    /**
-     * Creates the client.
-     *
-     * @param pool      connection pool, never {@code null}
-     * @param basePath  remote root directory, never {@code null}
-     * @param urlPrefix file URL prefix, may be empty
-     */
+    /** Creates the SFTP backend. */
     SftpStorageClient(SftpConnectionPool pool, String basePath, String urlPrefix) {
         this.pool = pool;
         this.basePath = basePath;
@@ -37,96 +30,88 @@ public final class SftpStorageClient implements StorageClient {
     }
 
     @Override
-    public void save(String fileName, InputStream inputStream, SaveArgs args) {
-        byte[] content;
+    public String save(StorageProviderSaveArgs args) {
+        if (!args.isOverrideExisting()
+                && exists(new StorageProviderExistsArgs(
+                        args.getContainerName(), args.getConfiguration(), args.getFileId()))) {
+            throw new StorageFileAlreadyExistsException(args.getFileId());
+        }
+        ExactLengthInputStream bounded = new ExactLengthInputStream(args.getFileStream(), args.getContentLength());
+        SftpChannelFactory.PooledSftpChannel leased = pool.borrow();
         try {
-            content = inputStream.readAllBytes();
+            leased.channel().put(bounded, resolve(args.getFileId()), ChannelSftp.OVERWRITE);
+            bounded.verifyComplete();
+            return args.getFileId();
         } catch (Exception e) {
-            throw new StorageOperationException("Failed to read stream for: " + fileName, e);
-        }
-        String path = resolve(fileName);
-        if (!args.isOverwrite() && exists(fileName)) {
-            throw new io.github.cocosip.polystore.exception.StorageFileAlreadyExistsException(fileName);
-        }
-        SftpChannelFactory.PooledSftpChannel leased = pool.borrow();
-        try {
-            leased.channel().put(new ByteArrayInputStream(content), path, ChannelSftp.OVERWRITE);
-        } catch (SftpException e) {
-            throw new StorageOperationException("Failed to save file: " + fileName, e);
+            throw new StorageOperationException("Failed to save file: " + args.getFileId(), e);
         } finally {
             pool.release(leased);
         }
     }
 
     @Override
-    public InputStream get(String fileName) {
-        String path = resolve(fileName);
+    public InputStream getOrNull(StorageProviderGetArgs args) {
         SftpChannelFactory.PooledSftpChannel leased = pool.borrow();
         try {
-            byte[] content = leased.channel().get(path).readAllBytes();
-            return new ByteArrayInputStream(content);
+            return new ByteArrayInputStream(
+                    leased.channel().get(resolve(args.getFileId())).readAllBytes());
         } catch (SftpException e) {
-            if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) {
-                throw new StorageFileNotFoundException(fileName);
-            }
-            throw new StorageOperationException("Failed to get file: " + fileName, e);
+            if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) return null;
+            throw new StorageOperationException("Failed to get file: " + args.getFileId(), e);
         } catch (java.io.IOException e) {
-            throw new StorageOperationException("Failed to read file content: " + fileName, e);
+            throw new StorageOperationException("Failed to read file: " + args.getFileId(), e);
         } finally {
             pool.release(leased);
         }
     }
 
     @Override
-    public void delete(String fileName) {
-        String path = resolve(fileName);
+    public boolean delete(StorageProviderDeleteArgs args) {
         SftpChannelFactory.PooledSftpChannel leased = pool.borrow();
         try {
-            leased.channel().rm(path);
-        } catch (SftpException e) {
-            if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) {
-                return; // missing files are silently ignored, per the StorageClient contract
-            }
-            throw new StorageOperationException("Failed to delete file: " + fileName, e);
-        } finally {
-            pool.release(leased);
-        }
-    }
-
-    @Override
-    public boolean exists(String fileName) {
-        String path = resolve(fileName);
-        SftpChannelFactory.PooledSftpChannel leased = pool.borrow();
-        try {
-            leased.channel().stat(path);
+            leased.channel().rm(resolve(args.getFileId()));
             return true;
         } catch (SftpException e) {
-            if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) {
-                return false;
-            }
-            throw new StorageOperationException("Failed to check file: " + fileName, e);
+            if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) return false;
+            throw new StorageOperationException("Failed to delete file: " + args.getFileId(), e);
         } finally {
             pool.release(leased);
         }
     }
 
     @Override
-    public String getUrl(String fileName, UrlArgs args) {
-        if (urlPrefix.isEmpty()) {
-            return fileName;
+    public boolean exists(StorageProviderExistsArgs args) {
+        SftpChannelFactory.PooledSftpChannel leased = pool.borrow();
+        try {
+            leased.channel().stat(resolve(args.getFileId()));
+            return true;
+        } catch (SftpException e) {
+            if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) return false;
+            throw new StorageOperationException("Failed to check file: " + args.getFileId(), e);
+        } finally {
+            pool.release(leased);
         }
-        return urlPrefix + "/" + fileName;
     }
 
     @Override
-    public void deleteAll(Collection<String> fileNames) {
-        fileNames.forEach(this::delete);
+    public boolean download(StorageProviderDownloadArgs args) {
+        InputStream stream = getOrNull(
+                new StorageProviderGetArgs(args.getContainerName(), args.getConfiguration(), args.getFileId()));
+        if (stream == null) return false;
+        try (stream) {
+            Files.copy(stream, args.getPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            return true;
+        } catch (Exception e) {
+            throw new StorageOperationException("Failed to download file: " + args.getFileId(), e);
+        }
     }
 
-    private String resolve(String fileName) {
-        if (fileName.startsWith("/")) {
-            return basePath + fileName;
-        }
-        return basePath + "/" + fileName;
+    @Override
+    public String getAccessUrl(StorageProviderAccessArgs args) {
+        return urlPrefix.isEmpty() ? args.getFileId() : urlPrefix + "/" + args.getFileId();
+    }
+
+    private String resolve(String fileId) {
+        return fileId.startsWith("/") ? basePath + fileId : basePath + "/" + fileId;
     }
 }

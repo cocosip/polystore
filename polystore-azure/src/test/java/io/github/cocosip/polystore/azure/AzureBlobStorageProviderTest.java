@@ -4,23 +4,28 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
+import io.github.cocosip.polystore.DefaultStorageContainer;
 import io.github.cocosip.polystore.StorageContainer;
-import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class AzureBlobStorageProviderTest {
-
     private static final String CONNECTION_STRING =
-            "DefaultEndpointsProtocol=https;AccountName=devstore;AccountKey=a2V5;EndpointSuffix" + "=core.windows.net";
+            "DefaultEndpointsProtocol=https;AccountName=devstore;AccountKey=a2V5;EndpointSuffix=core.windows.net";
+
+    private static ContainerConfiguration configuration(Map<String, Object> properties) {
+        return ContainerConfiguration.builder()
+                .name("blobs")
+                .type("azure")
+                .properties(properties)
+                .build();
+    }
 
     private static StorageContainer build(Map<String, Object> properties) {
-        return new AzureBlobStorageProvider()
-                .createContainer(ContainerConfiguration.builder()
-                        .name("blobs")
-                        .type("azure")
-                        .properties(properties)
-                        .build());
+        ContainerConfiguration configuration = configuration(properties);
+        AzureBlobStorageProvider provider = new AzureBlobStorageProvider();
+        return DefaultStorageContainer.from(configuration, provider.createBackend(configuration));
     }
 
     @Test
@@ -29,71 +34,48 @@ class AzureBlobStorageProviderTest {
     }
 
     @Test
-    void shouldBuildFromConnectionString() {
-        StorageContainer container = build(Map.of("connectionString", CONNECTION_STRING, "containerName", "scans"));
-
-        assertThat(container.getProviderType()).isEqualTo("azure");
+    void shouldBuildFromConnectionStringAndAccountCredentials() {
+        assertThat(build(Map.of("connectionString", CONNECTION_STRING, "containerName", "scans"))
+                        .getProviderType())
+                .isEqualTo("azure");
+        assertThat(build(Map.of(
+                                "accountName", "devstore",
+                                "accountKey", "a2V5",
+                                "containerName", "scans"))
+                        .getProviderType())
+                .isEqualTo("azure");
     }
 
     @Test
-    void shouldBuildFromAccountNameAndKey() {
-        StorageContainer container = build(Map.of(
-                "accountName", "devstore",
-                "accountKey", "a2V5",
-                "containerName", "scans"));
+    void sasUrlShouldBeSignedOfflineForTheExplicitExpiry() {
+        StorageContainer container =
+                build(Map.of("accountName", "devstore", "accountKey", "a2V5", "containerName", "scans"));
 
-        assertThat(container.getProviderType()).isEqualTo("azure");
-    }
-
-    @Test
-    void sasUrlShouldBeSignedOfflineAndHonorSasExpiry() {
-        StorageContainer container = build(Map.of(
-                "accountName", "devstore",
-                "accountKey", "a2V5",
-                "containerName", "scans",
-                "sasExpiry", 120));
-
-        String url = container.getUrl("dicom/1.dcm");
+        String url = container.getAccessUrl("dicom/1.dcm", Instant.parse("2026-09-22T00:00:00Z"), false);
 
         assertThat(url).startsWith("https://devstore.blob.core.windows.net/scans/dicom%2F1.dcm?");
-        assertThat(url).contains("sig=");
-        assertThat(url).contains("se="); // signed expiry instant
-
-        String explicit = container.getUrl(
-                "dicom/1.dcm",
-                io.github.cocosip.polystore.UrlArgs.builder()
-                        .expiry(Duration.ofMinutes(10))
-                        .build());
-        assertThat(explicit).contains("sig=");
+        assertThat(url).contains("sig=").contains("se=");
     }
 
     @Test
-    void createContainerIfNotExistsShouldNotTouchTheNetworkAtConstruction() {
-        // the container is created lazily on save, so an unreachable account must not fail
-        // container construction even with the flag enabled
-        StorageContainer container = build(Map.of(
-                "accountName", "unreachableaccount",
-                "accountKey", "a2V5",
-                "containerName", "scans",
-                "createContainerIfNotExists", true));
+    void sasExpiryExtensionShouldRemainParseable() {
+        assertThat(AzureBlobStorageConfiguration.from(configuration(Map.of(
+                                "accountName", "devstore",
+                                "accountKey", "a2V5",
+                                "containerName", "scans",
+                                "sasExpiry", 120)))
+                        .sasExpirySeconds())
+                .isEqualTo(120);
+    }
 
-        assertThat(container.getProviderType()).isEqualTo("azure");
+    @Test
+    void constructionShouldRemainOfflineAndNormalizedKeysShouldResolve() {
+        StorageContainer container = build(Map.of(
+                "Account-Name", "unreachableaccount",
+                "Account_Key", "a2V5",
+                "Container-Name", "scans",
+                "Create-Container-If-Not-Exists", true));
         assertThat(container.getName()).isEqualTo("blobs");
-    }
-
-    @Test
-    void canonicalKeysShouldResolveRegardlessOfCaseAndSeparators() {
-        StorageContainer container = build(Map.of(
-                "Connection-String",
-                CONNECTION_STRING,
-                "Container_Name",
-                "scans",
-                "Create-Container-If-Not-Exists",
-                true,
-                "sas-expiry",
-                60));
-
-        assertThat(container.getProviderType()).isEqualTo("azure");
     }
 
     @Test
@@ -105,20 +87,14 @@ class AzureBlobStorageProviderTest {
                 "scans",
                 "Azure.CreateContainerIfNotExists",
                 true));
-
         assertThat(container.getProviderType()).isEqualTo("azure");
-        assertThat(container.getUrl("dicom/1.dcm")).contains("sig=");
     }
 
     @Test
-    void missingContainerNameShouldBeRejected() {
+    void missingRequiredValuesShouldBeRejected() {
         assertThatThrownBy(() -> build(Map.of("connectionString", CONNECTION_STRING)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("containerName");
-    }
-
-    @Test
-    void missingCredentialsShouldBeRejected() {
         assertThatThrownBy(() -> build(Map.of("containerName", "scans")))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("connectionString");

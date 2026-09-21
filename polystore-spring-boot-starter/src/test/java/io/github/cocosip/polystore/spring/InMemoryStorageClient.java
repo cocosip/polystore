@@ -1,81 +1,78 @@
 package io.github.cocosip.polystore.spring;
 
-import io.github.cocosip.polystore.SaveArgs;
-import io.github.cocosip.polystore.StorageClient;
-import io.github.cocosip.polystore.UrlArgs;
+import io.github.cocosip.polystore.StorageBackend;
+import io.github.cocosip.polystore.StorageProviderAccessArgs;
+import io.github.cocosip.polystore.StorageProviderDeleteArgs;
+import io.github.cocosip.polystore.StorageProviderDownloadArgs;
+import io.github.cocosip.polystore.StorageProviderExistsArgs;
+import io.github.cocosip.polystore.StorageProviderGetArgs;
+import io.github.cocosip.polystore.StorageProviderSaveArgs;
 import io.github.cocosip.polystore.exception.StorageFileAlreadyExistsException;
-import io.github.cocosip.polystore.exception.StorageFileNotFoundException;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.util.Collection;
+import java.nio.file.Files;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Map-backed {@link StorageClient} for tests: keeps content in memory under the exact key. */
-public final class InMemoryStorageClient implements StorageClient {
-
+/** Map-backed {@link StorageBackend} used by starter tests. */
+public final class InMemoryStorageClient implements StorageBackend {
     private final Map<String, byte[]> store = new ConcurrentHashMap<>();
 
-    /**
-     * Returns the internal store for assertions.
-     *
-     * @return live map of stored content
-     */
+    /** Returns the live store for assertions. */
     public Map<String, byte[]> store() {
         return store;
     }
 
     @Override
-    public void save(String fileName, InputStream inputStream, SaveArgs args) {
-        byte[] content;
+    public String save(StorageProviderSaveArgs args) {
+        if (store.containsKey(args.getFileId()) && !args.isOverrideExisting()) {
+            throw new StorageFileAlreadyExistsException(args.getFileId());
+        }
         try {
-            content = inputStream.readAllBytes();
+            byte[] content = args.getFileStream().readNBytes(Math.toIntExact(args.getContentLength()));
+            if (content.length != args.getContentLength()) throw new IllegalStateException("early EOF");
+            store.put(args.getFileId(), content);
+            return args.getFileId();
         } catch (Exception e) {
             throw new IllegalStateException("failed to read stream", e);
         }
-        if (store.containsKey(fileName) && !args.isOverwrite()) {
-            throw new StorageFileAlreadyExistsException(fileName);
+    }
+
+    @Override
+    public boolean delete(StorageProviderDeleteArgs args) {
+        return store.remove(args.getFileId()) != null;
+    }
+
+    @Override
+    public boolean exists(StorageProviderExistsArgs args) {
+        return store.containsKey(args.getFileId());
+    }
+
+    @Override
+    public boolean download(StorageProviderDownloadArgs args) {
+        byte[] content = store.get(args.getFileId());
+        if (content == null) return false;
+        try {
+            Files.write(args.getPath(), content);
+            return true;
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
         }
-        store.put(fileName, content);
     }
 
     @Override
-    public InputStream get(String fileName) {
-        byte[] content = store.get(fileName);
-        if (content == null) {
-            throw new StorageFileNotFoundException(fileName);
-        }
-        return new ByteArrayInputStream(content);
+    public InputStream getOrNull(StorageProviderGetArgs args) {
+        byte[] content = store.get(args.getFileId());
+        return content == null ? null : new ByteArrayInputStream(content);
     }
 
     @Override
-    public void delete(String fileName) {
-        store.remove(fileName);
+    public String getAccessUrl(StorageProviderAccessArgs args) {
+        return "mem://" + args.getFileId();
     }
 
-    @Override
-    public boolean exists(String fileName) {
-        return store.containsKey(fileName);
-    }
-
-    @Override
-    public String getUrl(String fileName, UrlArgs args) {
-        return "mem://" + fileName;
-    }
-
-    @Override
-    public void deleteAll(Collection<String> fileNames) {
-        fileNames.forEach(store::remove);
-    }
-
-    /**
-     * Reads stored content as UTF-8 text for assertions.
-     *
-     * @param fileName key to read
-     * @return content as text
-     */
-    public String text(String fileName) {
-        return new String(store.get(fileName), StandardCharsets.UTF_8);
+    /** Reads stored content as UTF-8 text. */
+    public String text(String fileId) {
+        return new String(store.get(fileId), java.nio.charset.StandardCharsets.UTF_8);
     }
 }

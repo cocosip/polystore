@@ -15,7 +15,7 @@ import io.github.cocosip.polystore.util.ConfigUtils;
  * @param accountName                storage account name used when no connection string is given
  * @param accountKey                 storage account key used when no connection string is given
  * @param containerName              target blob container, never blank
- * @param sasExpirySeconds           SAS token validity in seconds for {@code getUrl}
+ * @param sasExpirySeconds           SAS token validity in seconds for {@code getAccessUrl}
  * @param createContainerIfNotExists create the blob container lazily, right before the first upload
  */
 record AzureBlobStorageConfiguration(

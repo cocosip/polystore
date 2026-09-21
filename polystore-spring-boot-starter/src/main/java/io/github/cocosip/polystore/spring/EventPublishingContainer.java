@@ -1,70 +1,69 @@
 package io.github.cocosip.polystore.spring;
 
+import io.github.cocosip.polystore.ContainerConfiguration;
 import io.github.cocosip.polystore.ContainerInfo;
-import io.github.cocosip.polystore.SaveArgs;
 import io.github.cocosip.polystore.StorageContainer;
-import io.github.cocosip.polystore.UrlArgs;
+import io.github.cocosip.polystore.StorageSaveOptions;
 import io.github.cocosip.polystore.spring.event.FileDeletedEvent;
 import io.github.cocosip.polystore.spring.event.FileSavedEvent;
 import java.io.InputStream;
-import java.util.Collection;
+import java.nio.file.Path;
+import java.time.Instant;
 
-/**
- * Wraps a container and publishes {@link FileSavedEvent} / {@link FileDeletedEvent} after every
- * successful save / delete / deleteAll.
- *
- * <p>File names in events are the logical names passed by the caller, before any tenant prefix
- * is applied by an inner {@link TenantPathPrefixContainer}.</p>
- */
+/** Public container decorator that publishes successful save and delete events. */
 public final class EventPublishingContainer implements StorageContainer {
-
     private final StorageContainer inner;
     private final StorageEventPublisher publisher;
 
-    /**
-     * Creates the publishing view.
-     *
-     * @param inner     the container to wrap, never {@code null}
-     * @param publisher event sink, never {@code null}
-     */
+    /** Creates the publishing view. */
     public EventPublishingContainer(StorageContainer inner, StorageEventPublisher publisher) {
         this.inner = inner;
         this.publisher = publisher;
     }
 
     @Override
-    public void save(String fileName, InputStream inputStream, SaveArgs args) {
-        inner.save(fileName, inputStream, args);
-        publisher.publish(new FileSavedEvent(getName(), fileName, getProviderType()));
+    public String save(
+            String fileId,
+            InputStream stream,
+            long contentLength,
+            String ext,
+            boolean overrideExisting,
+            StorageSaveOptions options) {
+        String savedFileId = inner.save(fileId, stream, contentLength, ext, overrideExisting, options);
+        publisher.publish(new FileSavedEvent(getName(), fileId, getProviderType()));
+        return savedFileId;
     }
 
     @Override
-    public InputStream get(String fileName) {
-        return inner.get(fileName);
+    public boolean delete(String fileId) {
+        boolean deleted = inner.delete(fileId);
+        if (deleted) publisher.publish(new FileDeletedEvent(getName(), fileId, getProviderType()));
+        return deleted;
     }
 
     @Override
-    public void delete(String fileName) {
-        inner.delete(fileName);
-        publisher.publish(new FileDeletedEvent(getName(), fileName, getProviderType()));
+    public boolean exists(String fileId) {
+        return inner.exists(fileId);
     }
 
     @Override
-    public boolean exists(String fileName) {
-        return inner.exists(fileName);
+    public boolean download(String fileId, Path path) {
+        return inner.download(fileId, path);
     }
 
     @Override
-    public String getUrl(String fileName, UrlArgs args) {
-        return inner.getUrl(fileName, args);
+    public InputStream getOrNull(String fileId) {
+        return inner.getOrNull(fileId);
     }
 
     @Override
-    public void deleteAll(Collection<String> fileNames) {
-        inner.deleteAll(fileNames);
-        for (String fileName : fileNames) {
-            publisher.publish(new FileDeletedEvent(getName(), fileName, getProviderType()));
-        }
+    public String getAccessUrl(String fileId, Instant expires, boolean checkFileExist) {
+        return inner.getAccessUrl(fileId, expires, checkFileExist);
+    }
+
+    @Override
+    public ContainerConfiguration getConfiguration() {
+        return inner.getConfiguration();
     }
 
     @Override

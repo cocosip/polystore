@@ -4,9 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
+import io.github.cocosip.polystore.DefaultStorageContainer;
 import io.github.cocosip.polystore.StorageContainer;
-import io.github.cocosip.polystore.UrlArgs;
-import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -20,12 +20,13 @@ class HuaweiObsStorageProviderTest {
             "bucketName", "dicom");
 
     private static StorageContainer build(Map<String, Object> properties) {
-        return new HuaweiObsStorageProvider()
-                .createContainer(ContainerConfiguration.builder()
-                        .name("obs")
-                        .type("huawei-obs")
-                        .properties(properties)
-                        .build());
+        ContainerConfiguration configuration = ContainerConfiguration.builder()
+                .name("obs")
+                .type("huawei-obs")
+                .properties(properties)
+                .build();
+        HuaweiObsStorageProvider provider = new HuaweiObsStorageProvider();
+        return DefaultStorageContainer.from(configuration, provider.createBackend(configuration));
     }
 
     private static Map<String, Object> with(String key, Object value) {
@@ -51,7 +52,7 @@ class HuaweiObsStorageProviderTest {
     void signedUrlShouldBeComputedOffline() {
         StorageContainer container = build(CONFIG);
 
-        String url = container.getUrl("2024/scan.dcm");
+        String url = container.getAccessUrl("2024/scan.dcm", Instant.now().plusSeconds(61), false);
 
         assertThat(url).contains("obs.cn-north-4.myhuaweicloud.com");
         assertThat(url).contains("Signature=");
@@ -59,11 +60,10 @@ class HuaweiObsStorageProviderTest {
     }
 
     @Test
-    void explicitUrlArgsExpiryShouldBeAccepted() {
+    void explicitExpiryShouldBeAccepted() {
         StorageContainer container = build(CONFIG);
 
-        String url = container.getUrl(
-                "a.txt", UrlArgs.builder().expiry(Duration.ofMinutes(10)).build());
+        String url = container.getAccessUrl("a.txt", Instant.now().plusSeconds(601), false);
 
         assertThat(url).isNotBlank();
     }
@@ -87,7 +87,8 @@ class HuaweiObsStorageProviderTest {
                 "ACCESS_KEY_SECRET", "sk",
                 "Create-Container-If-Not-Exists", true));
 
-        assertThat(container.getUrl("a.txt")).contains("Signature=");
+        assertThat(container.getAccessUrl("a.txt", Instant.now().plusSeconds(61), false))
+                .contains("Signature=");
     }
 
     @Test
@@ -100,35 +101,36 @@ class HuaweiObsStorageProviderTest {
                 "Obs.CreateContainerIfNotExists", true));
 
         assertThat(container.getProviderType()).isEqualTo("huawei-obs");
-        assertThat(container.getUrl("a.txt")).contains("Signature=");
+        assertThat(container.getAccessUrl("a.txt", Instant.now().plusSeconds(61), false))
+                .contains("Signature=");
     }
 
     @Test
     void missingRequiredParametersShouldBeRejected() {
         HuaweiObsStorageProvider provider = new HuaweiObsStorageProvider();
 
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("huawei-obs")
                         .properties(Map.of("accessKeyId", "a", "accessKeySecret", "s", "bucketName", "b"))
                         .build()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("endpoint");
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("huawei-obs")
                         .properties(Map.of("endpoint", "e", "accessKeyId", "a", "accessKeySecret", "s"))
                         .build()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("bucketName");
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("huawei-obs")
                         .properties(Map.of("endpoint", "e", "accessKeySecret", "s", "bucketName", "b"))
                         .build()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("accessKeyId");
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("huawei-obs")
                         .properties(Map.of("endpoint", "e", "accessKeyId", "a", "bucketName", "b"))

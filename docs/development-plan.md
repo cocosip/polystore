@@ -26,7 +26,8 @@
 - [x] `StorageContainer` interface
 - [x] `StorageProvider` interface (SPI)
 - [x] `StorageManager` interface
-- [x] `SaveArgs` / `UrlArgs` supporting types
+- [x] `StorageSaveOptions` and immutable `StorageProvider*Args` operation types
+- [x] Separate public `StorageClient` / `StorageContainer` API from the `StorageBackend` SPI
 - [x] `ContainerConfiguration` / `ContainerInfo`
 - [x] `TenantIdSupplier` interface
 - [x] `TenantIsolationMode` enum
@@ -34,9 +35,11 @@
 - [x] Unit tests (core logic coverage)
 
 > 2026-09-21: 24 unit tests green. Notes: package `io.github.cocosip.polystore`, exceptions in the
-> `exception` subpackage; `SaveArgs` / `ContainerConfiguration` are immutable (builder +
-> defensive copies + read-only maps); convenience overloads `save(fileName, stream)` and
-> `getUrl(fileName)` apply default arguments. The file exceptions are named
+> `exception` subpackage; `StorageSaveOptions` / `ContainerConfiguration` and the provider
+> operation arguments are immutable (builder or validated constructors + defensive copies +
+> read-only maps); the canonical stream save is
+> `save(fileId, stream, contentLength, ext, overrideExisting)` and Java convenience overloads
+> cover byte arrays, paths, read-all and access URLs. The file exceptions are named
 > `StorageFileNotFoundException` / `StorageFileAlreadyExistsException` because their plain names
 > clash with `java.io` / `java.nio.file` classes.
 
@@ -73,8 +76,8 @@
 > (`META-INF/services`) and depends only on core; the deterministically testable offline logic
 > (configuration parsing, client assembly, local computation of presigned/SAS/signed URLs, path
 > and tenant semantics) is covered by tests. Testcontainers integration tests for minio / s3 are
-> pending a Docker environment. `save` buffers the stream in the S3 / OSS / Azure backends to get
-> a deterministic content length; chunked upload for large files is a future plan.
+> pending a Docker environment. The public stream API carries an explicit content length; all
+> backends stream exactly that length and object stores no longer buffer the complete upload.
 
 ### 4.1 polystore-local ✅
 - [x] `LocalStorageProvider` implementation
@@ -167,6 +170,37 @@
 
 ---
 
+## Phase 7: SharpAbp Operation API and Multipart Upload Alignment
+
+- [x] Canonical public save arguments aligned with SharpAbp, with explicit Java
+      `InputStream + contentLength`
+- [x] Default overwrite behavior changed to `false`; save returns the logical file id
+- [x] `getOrNull`, boolean delete/download, absolute-expiry `getAccessUrl` and byte/path
+      convenience methods
+- [x] Two-layer operation model:
+      `StorageClient / StorageContainer → DefaultStorageContainer → StorageBackend`
+- [x] Immutable `StorageProvider*Args` carry the container configuration and operation values
+- [x] Fixed container fields:
+      `enableAutoMultiPartUpload`, `multiPartUploadMinFileSize`,
+      `multiPartUploadShardingSize` and `httpAccess`
+- [x] Exact-length, non-closing stream handling with early-EOF detection
+- [x] Native automatic multipart upload for AWS, S3-compatible, KS3, Aliyun OSS and Huawei OBS
+- [x] Known-length/part-size upload configuration for MinIO and block upload configuration for
+      Azure
+- [x] Local and SFTP migrated to the backend argument model without complete-file buffering
+- [x] Offline tests cover threshold equality, ordered parts, short final parts, early EOF,
+      caller-stream ownership and best-effort abort
+- [x] Repository-wide documentation, formatting, SpotBugs, Javadoc and `clean install` gates
+
+> 2026-09-21: `InputStream.available()` was explicitly rejected as a length source. The caller
+> supplies the exact remaining length for stream uploads; byte-array and path overloads derive it.
+> Multipart is selected only when automatic multipart is enabled and the declared length is
+> strictly greater than the configured threshold. Provider-specific connection parameters remain
+> in `ContainerConfiguration.properties`, while multipart and HTTP-access fields are fixed
+> container configuration.
+
+---
+
 ## Phase 5: Quality & Release ✅
 
 - [x] Javadoc across all modules (the build runs a javadoc generation gate; public API fully
@@ -188,7 +222,6 @@
   Spring-coupled approach is accepted (historical implementation: commit `068dd80`).
 - **CHANGELOG.md** (removed 2026-09-21): the Keep a Changelog file was deleted from the
   repository.
-- Multipart upload
 - File id generator (timestamp / template based path generation)
 - Mirror sync (write-through to multiple containers)
 - CDN signed URLs (CloudFront, Alibaba Cloud CDN)

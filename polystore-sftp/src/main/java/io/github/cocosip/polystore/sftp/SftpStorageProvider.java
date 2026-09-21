@@ -1,8 +1,7 @@
 package io.github.cocosip.polystore.sftp;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
-import io.github.cocosip.polystore.DefaultStorageContainer;
-import io.github.cocosip.polystore.StorageContainer;
+import io.github.cocosip.polystore.StorageBackend;
 import io.github.cocosip.polystore.StorageProvider;
 
 /**
@@ -25,7 +24,7 @@ public class SftpStorageProvider implements StorageProvider {
     }
 
     @Override
-    public StorageContainer createContainer(ContainerConfiguration config) {
+    public StorageBackend createBackend(ContainerConfiguration config) {
         SftpStorageConfiguration configuration = SftpStorageConfiguration.from(config);
 
         SftpConnectionPool pool = new SftpConnectionPool(
@@ -37,7 +36,6 @@ public class SftpStorageProvider implements StorageProvider {
                 configuration.privateKeyPath(),
                 configuration.strictHostKeyChecking(),
                 configuration.poolSize());
-        return DefaultStorageContainer.from(
-                config, new SftpStorageClient(pool, configuration.basePath(), configuration.urlPrefix()));
+        return new SftpStorageClient(pool, configuration.basePath(), configuration.urlPrefix());
     }
 }

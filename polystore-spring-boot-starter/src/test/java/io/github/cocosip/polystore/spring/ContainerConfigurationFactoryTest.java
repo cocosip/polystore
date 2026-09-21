@@ -29,6 +29,10 @@ class ContainerConfigurationFactoryTest {
         PolystoreProperties.ContainerProperties dicom = container("dicom", "minio");
         dicom.setDefault(true);
         dicom.setTenantIsolation(TenantIsolationMode.PATH_PREFIX);
+        dicom.setEnableAutoMultiPartUpload(true);
+        dicom.setMultiPartUploadMinFileSize(20L * 1024 * 1024);
+        dicom.setMultiPartUploadShardingSize(10L * 1024 * 1024);
+        dicom.setHttpAccess(false);
         MockEnvironment environment = new MockEnvironment();
         environment.setProperty("polystore.containers[0].minio.endpoint", "http://minio.internal:9000");
         environment.setProperty("polystore.containers[0].minio.access-key", "admin");
@@ -42,6 +46,10 @@ class ContainerConfigurationFactoryTest {
         assertThat(config.getType()).isEqualTo("minio");
         assertThat(config.isDefault()).isTrue();
         assertThat(config.getTenantIsolation()).isEqualTo(TenantIsolationMode.PATH_PREFIX);
+        assertThat(config.isEnableAutoMultiPartUpload()).isTrue();
+        assertThat(config.getMultiPartUploadMinFileSize()).isEqualTo(20L * 1024 * 1024);
+        assertThat(config.getMultiPartUploadShardingSize()).isEqualTo(10L * 1024 * 1024);
+        assertThat(config.isHttpAccess()).isFalse();
         assertThat(config.getProperty("endpoint")).isEqualTo("http://minio.internal:9000");
         assertThat(config.getProperty("access-key")).isEqualTo("admin");
     }
@@ -57,6 +65,8 @@ class ContainerConfigurationFactoryTest {
 
         assertThat(configurations.get(0).getProperties()).isEmpty();
         assertThat(configurations.get(0).getTenantIsolation()).isEqualTo(TenantIsolationMode.NONE);
+        assertThat(configurations.get(0).isEnableAutoMultiPartUpload()).isFalse();
+        assertThat(configurations.get(0).isHttpAccess()).isTrue();
     }
 
     @Test

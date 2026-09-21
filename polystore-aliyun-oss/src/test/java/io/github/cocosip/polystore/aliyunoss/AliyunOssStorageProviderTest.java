@@ -4,9 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
+import io.github.cocosip.polystore.DefaultStorageContainer;
 import io.github.cocosip.polystore.StorageContainer;
-import io.github.cocosip.polystore.UrlArgs;
-import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -20,12 +20,13 @@ class AliyunOssStorageProviderTest {
             "bucketName", "archive");
 
     private static StorageContainer build(Map<String, Object> properties) {
-        return new AliyunOssStorageProvider()
-                .createContainer(ContainerConfiguration.builder()
-                        .name("archive")
-                        .type("aliyun-oss")
-                        .properties(properties)
-                        .build());
+        ContainerConfiguration configuration = ContainerConfiguration.builder()
+                .name("archive")
+                .type("aliyun-oss")
+                .properties(properties)
+                .build();
+        AliyunOssStorageProvider provider = new AliyunOssStorageProvider();
+        return DefaultStorageContainer.from(configuration, provider.createBackend(configuration));
     }
 
     private static Map<String, Object> with(String key, Object value) {
@@ -55,26 +56,27 @@ class AliyunOssStorageProviderTest {
     void presignedUrlShouldBeComputedOfflineAndHonorExpiry() {
         StorageContainer container = build(with("urlExpiry", 120));
 
-        String url = container.getUrl("2024/report.pdf");
+        String url = container.getAccessUrl("2024/report.pdf", Instant.now().plusSeconds(121), false);
 
         assertThat(url).contains("Signature=");
         assertThat(url).contains("OSSAccessKeyId=LTAI");
         assertThat(url).contains("Expires=");
-        String urlOverride = container.getUrl(
-                "2024/report.pdf",
-                UrlArgs.builder().expiry(Duration.ofMinutes(5)).build());
+        String urlOverride =
+                container.getAccessUrl("2024/report.pdf", Instant.now().plusSeconds(301), false);
         assertThat(urlOverride).isNotBlank();
     }
 
     @Test
     void useInternalShouldRewriteAliyuncsEndpointsOnly() {
-        String url = build(with("useInternal", true)).getUrl("a.txt");
+        String url = build(with("useInternal", true))
+                .getAccessUrl("a.txt", Instant.now().plusSeconds(61), false);
         assertThat(url).contains("-internal.aliyuncs.com");
 
         Map<String, Object> external = new HashMap<>(STATIC);
         external.put("endpoint", "http://private-oss.example.com");
         external.put("useInternal", true);
-        assertThat(build(external).getUrl("a.txt")).contains("private-oss.example.com");
+        assertThat(build(external).getAccessUrl("a.txt", Instant.now().plusSeconds(61), false))
+                .contains("private-oss.example.com");
     }
 
     @Test
@@ -113,7 +115,7 @@ class AliyunOssStorageProviderTest {
         Map<String, Object> missingRoleArn = new HashMap<>(STATIC);
         missingRoleArn.put("useSecurityTokenService", true);
         missingRoleArn.put("roleSessionName", "polystore-session");
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("archive")
                         .type("aliyun-oss")
                         .properties(missingRoleArn)
@@ -124,7 +126,7 @@ class AliyunOssStorageProviderTest {
         Map<String, Object> missingSessionName = new HashMap<>(STATIC);
         missingSessionName.put("useSecurityTokenService", true);
         missingSessionName.put("roleArn", "acs:ram::1234567890:role/polystore");
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("archive")
                         .type("aliyun-oss")
                         .properties(missingSessionName)
@@ -142,7 +144,7 @@ class AliyunOssStorageProviderTest {
         properties.put("roleArn", "acs:ram::1234567890:role/polystore");
         properties.put("roleSessionName", "polystore-session");
 
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("archive")
                         .type("aliyun-oss")
                         .properties(properties)
@@ -155,28 +157,28 @@ class AliyunOssStorageProviderTest {
     void missingRequiredParametersShouldBeRejected() {
         AliyunOssStorageProvider provider = new AliyunOssStorageProvider();
 
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("aliyun-oss")
                         .properties(Map.of("accessKeyId", "a", "accessKeySecret", "s", "bucketName", "b"))
                         .build()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("endpoint");
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("aliyun-oss")
                         .properties(Map.of("endpoint", "e", "accessKeySecret", "s", "bucketName", "b"))
                         .build()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("accessKeyId");
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("aliyun-oss")
                         .properties(Map.of("endpoint", "e", "accessKeyId", "a", "bucketName", "b"))
                         .build()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("accessKeySecret");
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("aliyun-oss")
                         .properties(Map.of("endpoint", "e", "accessKeyId", "a", "accessKeySecret", "s"))
@@ -196,7 +198,8 @@ class AliyunOssStorageProviderTest {
                 "Create-Container-If-Not-Exists", true,
                 "Temporary-Credentials-Cache-Key", "shared/aliyun"));
 
-        assertThat(container.getUrl("a.txt")).contains("OSSAccessKeyId=LTAI");
+        assertThat(container.getAccessUrl("a.txt", Instant.now().plusSeconds(61), false))
+                .contains("OSSAccessKeyId=LTAI");
     }
 
     @Test
@@ -213,6 +216,7 @@ class AliyunOssStorageProviderTest {
                 "Aliyun.TemporaryCredentialsCacheKey", "shared/aliyun"));
 
         assertThat(container.getProviderType()).isEqualTo("aliyun-oss");
-        assertThat(container.getUrl("a.txt")).contains("OSSAccessKeyId=LTAI");
+        assertThat(container.getAccessUrl("a.txt", Instant.now().plusSeconds(61), false))
+                .contains("OSSAccessKeyId=LTAI");
     }
 }

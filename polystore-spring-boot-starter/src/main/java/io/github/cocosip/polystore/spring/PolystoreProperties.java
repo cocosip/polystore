@@ -60,6 +60,10 @@ public class PolystoreProperties {
         private String type;
         private Boolean isDefault;
         private TenantIsolationMode tenantIsolation;
+        private Boolean enableAutoMultiPartUpload;
+        private Long multiPartUploadMinFileSize;
+        private Long multiPartUploadShardingSize;
+        private Boolean httpAccess;
 
         /**
          * Returns the unique container name.
@@ -132,6 +136,46 @@ public class PolystoreProperties {
          */
         public void setTenantIsolation(TenantIsolationMode tenantIsolation) {
             this.tenantIsolation = tenantIsolation;
+        }
+
+        /** Returns whether automatic multipart upload is enabled. */
+        public Boolean getEnableAutoMultiPartUpload() {
+            return enableAutoMultiPartUpload;
+        }
+
+        /** Sets whether automatic multipart upload is enabled. */
+        public void setEnableAutoMultiPartUpload(Boolean value) {
+            enableAutoMultiPartUpload = value;
+        }
+
+        /** Returns the multipart selection threshold in bytes. */
+        public Long getMultiPartUploadMinFileSize() {
+            return multiPartUploadMinFileSize;
+        }
+
+        /** Sets the multipart selection threshold in bytes. */
+        public void setMultiPartUploadMinFileSize(Long value) {
+            multiPartUploadMinFileSize = value;
+        }
+
+        /** Returns the multipart part size in bytes. */
+        public Long getMultiPartUploadShardingSize() {
+            return multiPartUploadShardingSize;
+        }
+
+        /** Sets the multipart part size in bytes. */
+        public void setMultiPartUploadShardingSize(Long value) {
+            multiPartUploadShardingSize = value;
+        }
+
+        /** Returns whether public access URLs are enabled. */
+        public Boolean getHttpAccess() {
+            return httpAccess;
+        }
+
+        /** Sets whether public access URLs are enabled. */
+        public void setHttpAccess(Boolean value) {
+            httpAccess = value;
         }
     }
 }

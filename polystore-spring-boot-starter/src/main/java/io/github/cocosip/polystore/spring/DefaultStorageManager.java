@@ -1,6 +1,7 @@
 package io.github.cocosip.polystore.spring;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
+import io.github.cocosip.polystore.DefaultStorageContainer;
 import io.github.cocosip.polystore.StorageContainer;
 import io.github.cocosip.polystore.StorageManager;
 import io.github.cocosip.polystore.StorageProvider;
@@ -76,7 +77,8 @@ public final class DefaultStorageManager implements StorageManager {
             if (provider == null) {
                 throw new StorageProviderNotFoundException(configuration.getType());
             }
-            StorageContainer container = provider.createContainer(configuration);
+            StorageContainer container =
+                    DefaultStorageContainer.from(configuration, provider.createBackend(configuration));
             if (container.getInfo().isDefault()) {
                 defaultName = configuration.getName();
                 defaultCount++;

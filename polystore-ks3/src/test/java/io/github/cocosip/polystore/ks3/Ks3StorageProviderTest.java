@@ -5,9 +5,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.ksyun.ks3.service.Ks3ClientConfig;
 import io.github.cocosip.polystore.ContainerConfiguration;
+import io.github.cocosip.polystore.DefaultStorageContainer;
 import io.github.cocosip.polystore.StorageContainer;
-import io.github.cocosip.polystore.UrlArgs;
-import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -21,12 +21,13 @@ class Ks3StorageProviderTest {
             "secretKey", "sk");
 
     private static StorageContainer container(Map<String, Object> properties) {
-        return new Ks3StorageProvider()
-                .createContainer(ContainerConfiguration.builder()
-                        .name("archive")
-                        .type("ks3")
-                        .properties(properties)
-                        .build());
+        ContainerConfiguration configuration = ContainerConfiguration.builder()
+                .name("archive")
+                .type("ks3")
+                .properties(properties)
+                .build();
+        Ks3StorageProvider provider = new Ks3StorageProvider();
+        return DefaultStorageContainer.from(configuration, provider.createBackend(configuration));
     }
 
     private static Map<String, Object> with(String key, Object value) {
@@ -63,41 +64,48 @@ class Ks3StorageProviderTest {
 
     @Test
     void presignedUrlShouldBeComputedOffline() {
-        String url = container(FULL).getUrl("2024/report.pdf");
+        String url =
+                container(FULL).getAccessUrl("2024/report.pdf", Instant.now().plusSeconds(61), false);
 
         assertThat(url).contains("archive").contains("2024/report.pdf");
         assertThat(url).contains("Signature=").contains("Expires=");
     }
 
     @Test
-    void explicitUrlArgsExpiryShouldOverrideContainerDefault() {
+    void explicitExpiryShouldBeAccepted() {
         String url = container(with("urlExpiry", 60))
-                .getUrl("a.txt", UrlArgs.builder().expiry(Duration.ofMinutes(5)).build());
+                .getAccessUrl("a.txt", Instant.now().plusSeconds(301), false);
 
         assertThat(url).contains("Expires=");
     }
 
     @Test
     void httpShouldBeTheDefaultProtocol() {
-        assertThat(container(FULL).getUrl("a.txt")).startsWith("http://");
+        assertThat(container(FULL).getAccessUrl("a.txt", Instant.now().plusSeconds(61), false))
+                .startsWith("http://");
     }
 
     @Test
     void protocolShouldSelectTheScheme() {
-        assertThat(container(with("protocol", "https")).getUrl("a.txt")).startsWith("https://");
-        assertThat(container(with("protocol", "HTTPS")).getUrl("a.txt")).startsWith("https://");
+        assertThat(container(with("protocol", "https"))
+                        .getAccessUrl("a.txt", Instant.now().plusSeconds(61), false))
+                .startsWith("https://");
+        assertThat(container(with("protocol", "HTTPS"))
+                        .getAccessUrl("a.txt", Instant.now().plusSeconds(61), false))
+                .startsWith("https://");
     }
 
     @Test
     void endpointSchemeShouldWinOverTheDefaultProtocolOnly() {
         assertThat(container(with("endpoint", "https://ks3-cn-beijing.ksyuncs.com"))
-                        .getUrl("a.txt"))
+                        .getAccessUrl("a.txt", Instant.now().plusSeconds(61), false))
                 .startsWith("https://");
         // an explicit protocol still wins over the endpoint scheme
         Map<String, Object> properties = new HashMap<>(FULL);
         properties.put("endpoint", "https://ks3-cn-beijing.ksyuncs.com");
         properties.put("protocol", "http");
-        assertThat(container(properties).getUrl("a.txt")).startsWith("http://");
+        assertThat(container(properties).getAccessUrl("a.txt", Instant.now().plusSeconds(61), false))
+                .startsWith("http://");
     }
 
     @Test
@@ -112,28 +120,28 @@ class Ks3StorageProviderTest {
     void missingRequiredParametersShouldBeRejected() {
         Ks3StorageProvider provider = new Ks3StorageProvider();
 
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("ks3")
                         .properties(Map.of("bucketName", "b", "accessKey", "a", "secretKey", "s"))
                         .build()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("endpoint");
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("ks3")
                         .properties(Map.of("endpoint", "e", "accessKey", "a", "secretKey", "s"))
                         .build()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("bucketName");
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("ks3")
                         .properties(Map.of("endpoint", "e", "bucketName", "b", "secretKey", "s"))
                         .build()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("accessKey");
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+        assertThatThrownBy(() -> provider.createBackend(ContainerConfiguration.builder()
                         .name("c")
                         .type("ks3")
                         .properties(Map.of("endpoint", "e", "bucketName", "b", "accessKey", "a"))
@@ -207,6 +215,7 @@ class Ks3StorageProviderTest {
                 "KS3.SecretKey", "sk",
                 "KS3.Protocol", "https"));
 
-        assertThat(container.getUrl("a.txt")).startsWith("https://");
+        assertThat(container.getAccessUrl("a.txt", Instant.now().plusSeconds(61), false))
+                .startsWith("https://");
     }
 }

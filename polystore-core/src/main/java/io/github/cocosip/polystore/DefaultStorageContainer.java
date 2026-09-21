@@ -1,92 +1,91 @@
 package io.github.cocosip.polystore;
 
-import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.io.InputStream;
-import java.util.Collection;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.Objects;
 
-/**
- * Straightforward {@link StorageContainer} implementation delegating every file operation to a
- * backend-specific {@link StorageClient}. Storage backends (which depend only on this module) use
- * it inside their {@link StorageProvider#createContainer(ContainerConfiguration)} implementations.
- */
+/** Default public container coordinator that converts calls into backend argument objects. */
 public class DefaultStorageContainer implements StorageContainer {
-
-    private final String name;
-    private final String providerType;
+    private final ContainerConfiguration configuration;
     private final ContainerInfo info;
-    private final StorageClient delegate;
+    private final StorageBackend backend;
 
-    /** Creates a non-default container whose info is derived from name and provider type. */
-    public DefaultStorageContainer(String name, String providerType, StorageClient delegate) {
-        this(name, providerType, new ContainerInfo(name, providerType, false), delegate);
+    /** Creates a container from immutable configuration and a backend implementation. */
+    public DefaultStorageContainer(ContainerConfiguration configuration, StorageBackend backend) {
+        this.configuration = Objects.requireNonNull(configuration, "configuration");
+        this.info = ContainerInfo.from(configuration);
+        this.backend = Objects.requireNonNull(backend, "backend");
     }
 
-    /** Creates a container with an explicit default flag in its info. */
-    public DefaultStorageContainer(String name, String providerType, boolean isDefault, StorageClient delegate) {
-        this(name, providerType, new ContainerInfo(name, providerType, isDefault), delegate);
-    }
-
-    /** Creates a container backed by the given client, exposing the given metadata. */
-    @SuppressFBWarnings(
-            value = "EI_EXPOSE_REP2",
-            justification = "delegation is the purpose of this class; the client is shared by design")
-    public DefaultStorageContainer(String name, String providerType, ContainerInfo info, StorageClient delegate) {
-        this.name = name;
-        this.providerType = providerType;
-        this.info = info;
-        this.delegate = delegate;
-    }
-
-    /**
-     * Creates a container from a container configuration.
-     *
-     * @param configuration container configuration providing name, type and default flag
-     * @param client        backend-specific file operations
-     * @return container, never {@code null}
-     */
-    public static DefaultStorageContainer from(ContainerConfiguration configuration, StorageClient client) {
-        return new DefaultStorageContainer(
-                configuration.getName(), configuration.getType(), ContainerInfo.from(configuration), client);
+    /** Creates a default container coordinator. */
+    public static DefaultStorageContainer from(ContainerConfiguration configuration, StorageBackend backend) {
+        return new DefaultStorageContainer(configuration, backend);
     }
 
     @Override
-    public void save(String fileName, InputStream inputStream, SaveArgs args) {
-        delegate.save(fileName, inputStream, args);
+    public String save(
+            String fileId,
+            InputStream stream,
+            long contentLength,
+            String ext,
+            boolean overrideExisting,
+            StorageSaveOptions options) {
+        StorageSaveOptions actual = options == null ? StorageSaveOptions.defaults() : options;
+        return backend.save(new StorageProviderSaveArgs(
+                getName(),
+                configuration,
+                fileId,
+                stream,
+                contentLength,
+                ext,
+                overrideExisting,
+                actual.getContentType(),
+                actual.getMetadata()));
     }
 
     @Override
-    public InputStream get(String fileName) {
-        return delegate.get(fileName);
+    public boolean delete(String fileId) {
+        return backend.delete(new StorageProviderDeleteArgs(getName(), configuration, fileId));
     }
 
     @Override
-    public void delete(String fileName) {
-        delegate.delete(fileName);
+    public boolean exists(String fileId) {
+        return backend.exists(new StorageProviderExistsArgs(getName(), configuration, fileId));
     }
 
     @Override
-    public boolean exists(String fileName) {
-        return delegate.exists(fileName);
+    public boolean download(String fileId, Path path) {
+        return backend.download(new StorageProviderDownloadArgs(getName(), configuration, fileId, path));
     }
 
     @Override
-    public String getUrl(String fileName, UrlArgs args) {
-        return delegate.getUrl(fileName, args);
+    public InputStream getOrNull(String fileId) {
+        return backend.getOrNull(new StorageProviderGetArgs(getName(), configuration, fileId));
     }
 
     @Override
-    public void deleteAll(Collection<String> fileNames) {
-        delegate.deleteAll(fileNames);
+    public String getAccessUrl(String fileId, Instant expires, boolean checkFileExist) {
+        if (!configuration.isHttpAccess()) {
+            return "";
+        }
+        return backend.getAccessUrl(
+                new StorageProviderAccessArgs(getName(), configuration, fileId, expires, checkFileExist));
+    }
+
+    @Override
+    public ContainerConfiguration getConfiguration() {
+        return configuration;
     }
 
     @Override
     public String getName() {
-        return name;
+        return configuration.getName();
     }
 
     @Override
     public String getProviderType() {
-        return providerType;
+        return configuration.getType();
     }
 
     @Override

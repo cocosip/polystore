@@ -4,140 +4,172 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.obs.services.ObsClient;
-import com.obs.services.exception.ObsException;
-import com.obs.services.model.ObjectMetadata;
-import com.obs.services.model.ObsBucket;
+import com.obs.services.model.AbortMultipartUploadRequest;
+import com.obs.services.model.CompleteMultipartUploadRequest;
+import com.obs.services.model.HeaderResponse;
+import com.obs.services.model.InitiateMultipartUploadRequest;
+import com.obs.services.model.InitiateMultipartUploadResult;
+import com.obs.services.model.PartEtag;
+import com.obs.services.model.PutObjectRequest;
 import com.obs.services.model.PutObjectResult;
-import io.github.cocosip.polystore.SaveArgs;
+import com.obs.services.model.UploadPartRequest;
+import com.obs.services.model.UploadPartResult;
+import io.github.cocosip.polystore.ContainerConfiguration;
+import io.github.cocosip.polystore.StorageProviderSaveArgs;
 import io.github.cocosip.polystore.exception.StorageOperationException;
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
-/**
- * Verifies the lazy bucket creation of {@link HuaweiObsStorageClient} against a recording
- * {@link ObsClient} stub, so no network access is required.
- */
 class HuaweiObsStorageClientTest {
+    private static final long FIVE_MIB = 5L * 1024 * 1024;
 
-    private static final byte[] CONTENT = {1, 2, 3};
+    @Test
+    void thresholdEqualityShouldUseSingleStreamingUploadWithoutClosingCallerStream() throws Exception {
+        RecordingObsClient sdk = new RecordingObsClient();
+        byte[] bytes = new byte[(int) FIVE_MIB + 1];
+        bytes[(int) FIVE_MIB] = 9;
+        TrackingInputStream stream = new TrackingInputStream(bytes);
 
-    private static HuaweiObsStorageClient client(RecordingObsClient obs, boolean createContainerIfNotExists) {
-        return new HuaweiObsStorageClient(obs, "dicom", 3600, createContainerIfNotExists);
-    }
+        assertThat(client(sdk).save(args(stream, FIVE_MIB))).isEqualTo("a.bin");
 
-    private static void save(HuaweiObsStorageClient client) {
-        client.save("2024/scan.dcm", new ByteArrayInputStream(CONTENT), SaveArgs.defaults());
-    }
-
-    private static ObsException obsException(String errorCode, int responseCode) {
-        ObsException exception = new ObsException("stubbed OBS failure: " + errorCode);
-        exception.setErrorCode(errorCode);
-        exception.setResponseCode(responseCode);
-        return exception;
+        assertThat(sdk.calls).containsExactly("putObject");
+        assertThat(sdk.singleLength).isEqualTo(FIVE_MIB);
+        assertThat(stream.read()).isEqualTo(9);
+        assertThat(stream.closed).isFalse();
     }
 
     @Test
-    void saveShouldCreateBucketLazilyWhenMissing() {
-        RecordingObsClient obs = new RecordingObsClient(false);
+    void multipartShouldUploadOrderedPartsAndShortFinalPart() {
+        RecordingObsClient sdk = new RecordingObsClient();
+        byte[] bytes = new byte[(int) FIVE_MIB + 3];
 
-        save(client(obs, true));
+        client(sdk).save(args(new TrackingInputStream(bytes), bytes.length));
 
-        assertThat(obs.calls).containsExactly("headBucket", "createBucket", "putObject");
+        assertThat(sdk.calls)
+                .containsExactly("initiateMultipartUpload", "uploadPart", "uploadPart", "completeMultipartUpload");
+        assertThat(sdk.partNumbers).containsExactly(1, 2);
+        assertThat(sdk.partLengths).containsExactly(FIVE_MIB, 3L);
+        assertThat(sdk.completedEtags).containsExactly("etag-1", "etag-2");
     }
 
     @Test
-    void saveShouldLeaveExistingBucketUntouched() {
-        RecordingObsClient obs = new RecordingObsClient(true);
+    void multipartFailureShouldAbortWithoutClosingCallerStream() {
+        RecordingObsClient sdk = new RecordingObsClient();
+        sdk.failPart = 2;
+        TrackingInputStream stream = new TrackingInputStream(new byte[(int) FIVE_MIB + 1]);
 
-        save(client(obs, true));
-
-        assertThat(obs.calls).containsExactly("headBucket", "putObject");
-    }
-
-    @Test
-    void missingBucketExceptionShouldCountAsAbsent() {
-        RecordingObsClient obs = new RecordingObsClient(false);
-        obs.headBucketFailure = obsException("NoSuchBucket", 404);
-
-        save(client(obs, true));
-
-        assertThat(obs.calls).containsExactly("headBucket", "createBucket", "putObject");
-    }
-
-    @Test
-    void unexpectedBucketCheckFailureShouldBeWrapped() {
-        RecordingObsClient obs = new RecordingObsClient(false);
-        obs.headBucketFailure = obsException("AccessDenied", 403);
-
-        assertThatThrownBy(() -> save(client(obs, true)))
+        assertThatThrownBy(() -> client(sdk).save(args(stream, FIVE_MIB + 1)))
                 .isInstanceOf(StorageOperationException.class)
-                .hasMessageContaining("Failed to check bucket");
-        assertThat(obs.calls).containsExactly("headBucket");
+                .hasRootCauseMessage("part failed");
+
+        assertThat(sdk.calls).endsWith("uploadPart", "abortMultipartUpload");
+        assertThat(stream.closed).isFalse();
     }
 
-    @Test
-    void bucketCreationFailureShouldBeWrapped() {
-        RecordingObsClient obs = new RecordingObsClient(false);
-        obs.failOn = "createBucket";
-
-        assertThatThrownBy(() -> save(client(obs, true)))
-                .isInstanceOf(StorageOperationException.class)
-                .hasMessageContaining("Failed to create bucket");
+    private static HuaweiObsStorageClient client(RecordingObsClient sdk) {
+        return new HuaweiObsStorageClient(sdk, "dicom", 60, false);
     }
 
-    @Test
-    void saveShouldNotCheckTheBucketWhenCreationIsDisabled() {
-        RecordingObsClient obs = new RecordingObsClient(false);
-
-        save(client(obs, false));
-
-        assertThat(obs.calls).containsExactly("putObject");
+    private static StorageProviderSaveArgs args(TrackingInputStream stream, long length) {
+        ContainerConfiguration configuration = ContainerConfiguration.builder()
+                .name("dicom")
+                .type("huawei-obs")
+                .enableAutoMultiPartUpload(true)
+                .multiPartUploadMinFileSize(FIVE_MIB)
+                .multiPartUploadShardingSize(FIVE_MIB)
+                .build();
+        return new StorageProviderSaveArgs(
+                "dicom",
+                configuration,
+                "a.bin",
+                stream,
+                length,
+                ".bin",
+                true,
+                "application/octet-stream",
+                Map.of("source", "test"));
     }
 
-    /** Recording {@link ObsClient} stub; every call is recorded and returns a neutral value. */
     private static final class RecordingObsClient extends ObsClient {
-
         private final List<String> calls = new ArrayList<>();
-        private final boolean bucketExists;
-        private ObsException headBucketFailure;
-        private String failOn;
+        private final List<Integer> partNumbers = new ArrayList<>();
+        private final List<Long> partLengths = new ArrayList<>();
+        private final List<String> completedEtags = new ArrayList<>();
+        private long singleLength;
+        private int failPart;
 
-        private RecordingObsClient(boolean bucketExists) {
+        private RecordingObsClient() {
             super("ak", "sk", "obs.cn-north-4.myhuaweicloud.com");
-            this.bucketExists = bucketExists;
         }
 
         @Override
-        public boolean headBucket(String bucketName) {
-            calls.add("headBucket");
-            if (headBucketFailure != null) {
-                throw headBucketFailure;
-            }
-            return bucketExists;
-        }
-
-        @Override
-        public ObsBucket createBucket(String bucketName) {
-            calls.add("createBucket");
-            failIfRequested("createBucket");
-            return null;
-        }
-
-        @Override
-        public PutObjectResult putObject(
-                String bucketName, String objectKey, InputStream input, ObjectMetadata metadata) {
+        public PutObjectResult putObject(PutObjectRequest request) {
             calls.add("putObject");
-            failIfRequested("putObject");
+            singleLength = request.getMetadata().getContentLength();
+            read(request.getInput());
             return null;
         }
 
-        private void failIfRequested(String call) {
-            if (call.equals(failOn)) {
-                throw new ObsException("stubbed failure: " + call);
+        @Override
+        public InitiateMultipartUploadResult initiateMultipartUpload(InitiateMultipartUploadRequest request) {
+            calls.add("initiateMultipartUpload");
+            return new InitiateMultipartUploadResult("dicom", "a.bin", "upload-1");
+        }
+
+        @Override
+        public UploadPartResult uploadPart(UploadPartRequest request) {
+            calls.add("uploadPart");
+            partNumbers.add(request.getPartNumber());
+            partLengths.add(request.getPartSize());
+            read(request.getInput());
+            if (request.getPartNumber() == failPart) {
+                throw new IllegalStateException("part failed");
             }
+            UploadPartResult result = new UploadPartResult();
+            result.setPartNumber(request.getPartNumber());
+            result.setEtag("etag-" + request.getPartNumber());
+            return result;
+        }
+
+        @Override
+        public com.obs.services.model.CompleteMultipartUploadResult completeMultipartUpload(
+                CompleteMultipartUploadRequest request) {
+            calls.add("completeMultipartUpload");
+            request.getPartEtag().stream().map(PartEtag::getEtag).forEach(completedEtags::add);
+            return null;
+        }
+
+        @Override
+        public HeaderResponse abortMultipartUpload(AbortMultipartUploadRequest request) {
+            calls.add("abortMultipartUpload");
+            return new HeaderResponse();
+        }
+
+        private static void read(InputStream input) {
+            try {
+                input.readAllBytes();
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+        }
+    }
+
+    private static final class TrackingInputStream extends ByteArrayInputStream {
+        private boolean closed;
+
+        private TrackingInputStream(byte[] bytes) {
+            super(bytes);
+        }
+
+        @Override
+        public void close() throws IOException {
+            closed = true;
+            super.close();
         }
     }
 }

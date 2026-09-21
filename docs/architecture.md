@@ -23,32 +23,29 @@
 ## 2. Overall Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                      Business Code                      │
-└──────────────────────────┬──────────────────────────────┘
-                           │ inject
-                           ▼
-┌─────────────────────────────────────────────────────────┐
-│               StorageManager (entry facade)             │
-│   getContainer(name) → StorageContainer                 │
-└──────────────────────────┬──────────────────────────────┘
-                           │
-          ┌────────────────┬────────────────┬────────────────┐
-          ▼                ▼                ▼                ▼
-   StorageContainer  StorageContainer  StorageContainer  StorageContainer
-    (local/images)   (minio/dicom)    (s3/backup)      (aws/archive)
-          │                │                │                │
-          ▼                ▼                ▼                ▼
-   LocalProvider    MinioProvider     S3Provider       AwsProvider
+Business code
+  → StorageManager.getContainer(name)
+  → StorageClient / StorageContainer
+  → EventPublishingContainer
+  → TenantPathPrefixContainer
+  → DefaultStorageContainer
+       → creates immutable StorageProvider*Args
+  → StorageBackend
+  → third-party SDK
 ```
 
 ### Core Flow
 
-1. At startup the `StorageManager` initializes every container from the configuration; each
-   container holds one `StorageProvider` instance.
+1. At startup the `StorageManager` resolves a `StorageProvider` factory for each configured type.
+   The provider parses its provider-specific configuration and creates one `StorageBackend`.
 2. Business code obtains a `StorageContainer` via `storageManager.getContainer("name")`.
-3. It invokes operations on the `StorageContainer`: save / get / delete / exists / getUrl, etc.
-4. The `StorageContainer` delegates each operation to its `StorageProvider`.
+3. It invokes public operations on the container: save / get / download / delete / exists /
+   getAccessUrl.
+4. Decorators apply tenant path isolation and events. `DefaultStorageContainer` converts the
+   public call into an immutable `StorageProvider*Args` object carrying the container
+   configuration, logical file id and operation data.
+5. The `StorageBackend` consumes that operation object and calls the third-party SDK. Public
+   callers never see SDK types, and backends never receive tenant/event concerns.
 
 ---
 
@@ -90,31 +87,49 @@ polystore-spring-boot-starter → polystore-core
 
 ```java
 public interface StorageClient {
+    String save(
+            String fileId,
+            InputStream stream,
+            long contentLength,
+            String ext,
+            boolean overrideExisting,
+            StorageSaveOptions options);
 
-    /** Saves a file; the caller closes the inputStream */
-    void save(String fileName, InputStream inputStream, SaveArgs args);
+    default String save(
+            String fileId,
+            InputStream stream,
+            long contentLength,
+            String ext,
+            boolean overrideExisting);
 
-    /** Opens the file content; the caller closes the returned stream */
-    InputStream get(String fileName);
+    default String save(String fileId, InputStream stream, long contentLength, String ext);
+    default String save(String fileId, byte[] bytes, String ext, boolean overrideExisting);
+    default String save(String fileId, Path path, boolean overrideExisting);
 
-    /** Deletes a file; missing files are silently ignored */
-    void delete(String fileName);
-
-    /** Checks whether the file exists */
-    boolean exists(String fileName);
-
-    /** Resolves an accessible URL (object storages presign; local-style backends compose a path) */
-    String getUrl(String fileName, UrlArgs args);
-
-    /** Bulk delete */
-    void deleteAll(Collection<String> fileNames);
+    boolean delete(String fileId);
+    boolean exists(String fileId);
+    boolean download(String fileId, Path path);
+    InputStream getOrNull(String fileId);
+    default InputStream get(String fileId);
+    default byte[] getAllBytes(String fileId);
+    default byte[] getAllBytesOrNull(String fileId);
+    String getAccessUrl(String fileId, Instant expires, boolean checkFileExist);
 }
 ```
+
+The parameter order follows SharpAbp's `IFileContainer.SaveAsync(fileId, stream, ext,
+overrideExisting)`. Java adds `contentLength` immediately after the stream because a general
+`InputStream` has no total-length contract. The value is the exact number of bytes to consume from
+the stream's current position; `InputStream.available()` must never be used as a file length.
+The caller owns the supplied stream, and overwrite defaults to `false`.
 
 ### 4.2 StorageContainer — Container (configuration + client)
 
 ```java
 public interface StorageContainer extends StorageClient {
+
+    /** Complete immutable configuration, including fixed multipart settings */
+    ContainerConfiguration getConfiguration();
 
     /** Container name, unique per manager */
     String getName();
@@ -135,8 +150,22 @@ public interface StorageProvider {
     /** Provider type identifier, matching the configuration `type` field, e.g. "minio" */
     String getType();
 
-    /** Creates a StorageContainer instance from the container configuration */
-    StorageContainer createContainer(ContainerConfiguration config);
+    /** Creates the backend implementation bound to the container configuration */
+    StorageBackend createBackend(ContainerConfiguration config);
+}
+```
+
+`StorageProvider` is a registration and construction SPI. File operations use the separate
+`StorageBackend` interface:
+
+```java
+public interface StorageBackend {
+    String save(StorageProviderSaveArgs args);
+    boolean delete(StorageProviderDeleteArgs args);
+    boolean exists(StorageProviderExistsArgs args);
+    boolean download(StorageProviderDownloadArgs args);
+    InputStream getOrNull(StorageProviderGetArgs args);
+    String getAccessUrl(StorageProviderAccessArgs args);
 }
 ```
 
@@ -159,34 +188,47 @@ public interface StorageManager {
 ### 4.5 Supporting Types
 
 ```java
-// Save parameters
-public class SaveArgs {
-    private String contentType;           // MIME type
-    private Map<String, String> metadata; // custom metadata
-    private boolean overwrite = true;     // overwrite an existing file with the same name
-}
-
-// URL parameters
-public class UrlArgs {
-    private Duration expiry = Duration.ofHours(1); // presigned URL expiry
-    private boolean inline = false;                // Content-Disposition inline
+// Polystore-only public save extensions
+public final class StorageSaveOptions {
+    private String contentType;
+    private Map<String, String> metadata;
+    private String tenantId;
 }
 
 // Container configuration (one yml container entry)
-public class ContainerConfiguration {
+public final class ContainerConfiguration {
     private String name;
-    private String type;          // provider type
+    private String type;                       // provider type
     private boolean isDefault;
-    private Map<String, Object> properties; // provider-specific parameters
+    private TenantIsolationMode tenantIsolation;
+    private boolean enableAutoMultiPartUpload; // default false
+    private long multiPartUploadMinFileSize;   // default 100 MiB
+    private long multiPartUploadShardingSize;  // default 5 MiB
+    private boolean httpAccess;                // default true
+    private Map<String, Object> properties;    // provider-specific parameters only
 }
 
-// Container info (read-only)
-public class ContainerInfo {
-    private String name;
-    private String providerType;
-    private boolean isDefault;
+// Immutable provider-operation boundary
+public abstract class StorageProviderArgs {
+    private String containerName;
+    private ContainerConfiguration configuration;
+    private String fileId;
+}
+
+public final class StorageProviderSaveArgs extends StorageProviderArgs {
+    private InputStream fileStream;
+    private long contentLength;
+    private String fileExt;
+    private boolean overrideExisting;
+    private String contentType;
+    private Map<String, String> metadata;
 }
 ```
+
+The remaining operation objects are `StorageProviderDeleteArgs`,
+`StorageProviderExistsArgs`, `StorageProviderDownloadArgs`, `StorageProviderGetArgs` and
+`StorageProviderAccessArgs`. They are immutable and keep provider code independent from the public
+container decorators.
 
 ---
 
@@ -225,7 +267,42 @@ with its own `KSS` signature rather than AWS Signature Version 4, so it has a de
 built on the KS3 Java SDK (the SDK keeps `useAwsSignature = false` and signs with `Ks3V2Signer` by
 default).
 
-### 5.1 Local (local filesystem, reference: FileSystem)
+### 5.1 Streaming and Multipart Upload
+
+Every backend receives an explicit `contentLength` in `StorageProviderSaveArgs`. A backend must
+consume exactly that many bytes from the caller-owned stream:
+
+- an early end-of-stream fails the save;
+- bytes after the declared length remain unread;
+- the backend never closes the caller-owned stream; and
+- object uploads never call `readAllBytes()` on the complete payload.
+
+Automatic multipart upload uses the fixed container settings, not provider properties:
+
+```java
+boolean multipart = configuration.isEnableAutoMultiPartUpload()
+        && args.getContentLength() > configuration.getMultiPartUploadMinFileSize();
+```
+
+Equality with the threshold uses the single-upload path. The default threshold is 100 MiB and the
+default part size is 5 MiB. When multipart is enabled, the part size must be at least 5 MiB and
+must not exceed the threshold. Each backend validates its own part-count and object-size limits
+before initiating an upload.
+
+Backend behavior:
+
+- AWS and S3-compatible stores use SDK v2 create/upload/complete/abort multipart calls.
+- KS3 uses its native KSS-signed multipart calls.
+- Aliyun OSS and Huawei OBS use their native multipart APIs.
+- MinIO receives the known object length and configured part size through
+  `PutObjectArgs.Builder.stream`.
+- Azure uses `BlobParallelUploadOptions` with configured single-upload and block sizes.
+- Local and SFTP stream the exact declared length without multipart.
+
+After multipart initiation, any upload or completion failure triggers best-effort abort. An abort
+failure is attached as a suppressed exception so the original upload failure remains primary.
+
+### 5.2 Local (local filesystem, reference: FileSystem)
 
 | Parameter | Description | Default |
 |------|------|--------|
@@ -234,10 +311,10 @@ default).
 | `httpServer` | URL prefix (HTTP static-resource address) | `""` |
 | `createDirectories` | Create missing subdirectories on save (extension) | `true` |
 
-- `getUrl` returns `httpServer` + the stored relative path; nothing is presigned.
+- `getAccessUrl` returns `httpServer` + the stored relative path; nothing is presigned.
 - Suitable for development environments and intranets without object storage.
 
-### 5.2 MinIO
+### 5.3 MinIO
 
 | Parameter | Description | Default |
 |------|------|--------|
@@ -248,16 +325,15 @@ default).
 | `withSSL` | Use HTTPS when the endpoint carries no scheme | `false` |
 | `createBucketIfNotExists` | Create the bucket on the first save | `false` |
 | `region` | Signing region (extension) | `us-east-1` |
-| `urlExpiry` | Presigned URL expiry (seconds, extension) | `3600` |
-
 - Built on the `io.minio:minio` SDK.
-- Setting `region` keeps `getUrl` fully local; without it the SDK would query the bucket location.
+- Setting `region` keeps URL generation fully local; without it the SDK would query the bucket
+  location.
 
-### 5.3 S3-compatible stores
+### 5.4 S3-compatible stores
 
 | Parameter | Description | Default |
 |------|------|--------|
-| `serverUrl` | Service URL (Ceph, KS3, MinIO, R2, ...) | required |
+| `serverUrl` | Service URL (Ceph, R2 or another S3-compatible gateway) | required |
 | `accessKeyId` | Access Key ID | required |
 | `secretAccessKey` | Secret Access Key | required |
 | `bucketName` | Bucket name | required |
@@ -266,11 +342,9 @@ default).
 | `protocol` | `1` = HTTP, `2` = HTTPS (used when `serverUrl` has no scheme) | `1` |
 | `authenticationRegion` | Region used for AWS Signature Version 4 | `us-east-1` |
 | `createBucketIfNotExists` | Create the bucket on the first save | `false` |
-| `urlExpiry` | Presigned URL expiry (seconds, extension) | `3600` |
-
 - Built on AWS SDK for Java v2 (`software.amazon.awssdk`), always with an endpoint override.
 
-### 5.4 AWS (Amazon Web Services only)
+### 5.5 AWS (Amazon Web Services only)
 
 | Parameter | Description | Default |
 |------|------|--------|
@@ -285,13 +359,11 @@ default).
 | `name` / `policy` | Federation token name and policy | required in federated mode |
 | `temporaryCredentialsCacheKey` | Process-wide cache key of temporary credentials | `<container>/aws` |
 | `createContainerIfNotExists` | Create the bucket on the first save | `false` |
-| `urlExpiry` | Presigned URL expiry (seconds, extension) | `3600` |
-
 - The credential mode is selected in the reference order: `useCredentials`,
   `useTemporaryCredentials`, `useTemporaryFederatedCredentials`, then static keys.
 - Temporary credentials are cached process-wide and refreshed shortly before expiry.
 
-### 5.5 KS3 (Kingsoft Cloud)
+### 5.6 KS3 (Kingsoft Cloud)
 
 | Parameter | Description | Default |
 |------|------|--------|
@@ -306,12 +378,10 @@ default).
 | `createContainerIfNotExists` | Create the bucket on the first save | `false` |
 | `signerVersion` | KS3 signer `V2`, `V4` or `V4_UNSIGNED_PAYLOAD_SIGNER` (extension) | `V2` |
 | `useAwsSignature` | Use the AWS signature instead of the KS3 native one (extension) | `false` |
-| `urlExpiry` | Presigned URL expiry (seconds, extension) | `3600` |
-
 - Built on `com.ksyun:ks3-kss-java-sdk`; requests are signed with the KS3 native `KSS` signature,
   which is not AWS Signature Version 4. `useAwsSignature` exists only for AWS-compatible gateways.
 
-### 5.6 Azure Blob Storage
+### 5.7 Azure Blob Storage
 
 | Parameter | Description | Default |
 |------|------|--------|
@@ -320,11 +390,9 @@ default).
 | `accountKey` | Storage account key (extension) | — |
 | `containerName` | Container name | required |
 | `createContainerIfNotExists` | Create the container on the first save | `false` |
-| `sasExpiry` | SAS token expiry (seconds, extension) | `3600` |
-
 - Built on `com.azure:azure-storage-blob`.
 
-### 5.7 Alibaba Cloud OSS
+### 5.8 Alibaba Cloud OSS
 
 | Parameter | Description | Default |
 |------|------|--------|
@@ -339,12 +407,11 @@ default).
 | `policy` | Extra session policy | `""` |
 | `temporaryCredentialsCacheKey` | Process-wide cache key of temporary credentials | `<container>/aliyun` |
 | `createContainerIfNotExists` | Create the bucket on the first save | `false` |
-| `urlExpiry` | Presigned URL expiry (seconds, extension) | `3600` |
 | `useInternal` | Rewrite the endpoint to the intranet variant (extension) | `false` |
 
 - Built on `com.aliyun.oss:aliyun-sdk-oss`; STS uses `com.aliyun:aliyun-java-sdk-core`.
 
-### 5.8 Huawei Cloud OBS
+### 5.9 Huawei Cloud OBS
 
 | Parameter | Description | Default |
 |------|------|--------|
@@ -420,23 +487,25 @@ storageManager = PolystoreBuilder.builder()
     .build();
 
 // call sites stay clean, no boilerplate
-container.save("photo.jpg", stream, SaveArgs.defaults());
+container.save("photo.jpg", stream, contentLength, ".jpg");
 ```
 
-**Override path (explicit)**: `SaveArgs` accepts an explicit `tenantId` that takes priority over
-the `TenantIdSupplier` — useful for background batch jobs, cross-tenant administration and unit
-tests:
+**Override path (explicit)**: `StorageSaveOptions` accepts an explicit `tenantId` that takes
+priority over the `TenantIdSupplier` — useful for background batch jobs, cross-tenant
+administration and unit tests:
 
 ```java
-container.save("photo.jpg", stream, SaveArgs.builder()
-    .tenantId("tenant-abc")
-    .build());
+StorageSaveOptions options = StorageSaveOptions.builder()
+        .tenantId("tenant-abc")
+        .contentType("image/jpeg")
+        .build();
+container.save("photo.jpg", stream, contentLength, ".jpg", false, options);
 ```
 
 **Resolution priority**:
 
 ```
-SaveArgs.tenantId (explicit) > TenantIdSupplier (implicit) > null
+StorageSaveOptions.tenantId (explicit) > TenantIdSupplier (implicit) > null
 ```
 
 Without a registered `TenantIdSupplier` the resolved id defaults to `null`. Under `PATH_PREFIX`
@@ -462,8 +531,9 @@ With `tenantIsolation = PATH_PREFIX`, every operation transparently adds the pre
 | `images/photo.jpg` | `{tenantId}/images/photo.jpg` |
 | `2024/01/abc.dcm` | `{tenantId}/2024/01/abc.dcm` |
 
-The tenant id resolves by priority: `SaveArgs.tenantId` > `TenantIdSupplier` > null. When the
-final id is null and the container uses `PATH_PREFIX`, `TenantIdMissingException` is thrown.
+The tenant id resolves by priority: `StorageSaveOptions.tenantId` > `TenantIdSupplier` > null.
+When the final id is null and the container uses `PATH_PREFIX`,
+`TenantIdMissingException` is thrown.
 
 ### 6.5 yml Example
 
@@ -473,6 +543,10 @@ polystore:
     - name: dicom
       type: minio
       tenant-isolation: PATH_PREFIX   # enable path isolation
+      enable-auto-multi-part-upload: true
+      multi-part-upload-min-file-size: 104857600
+      multi-part-upload-sharding-size: 5242880
+      http-access: true
       minio:
         end-point: minio.internal:9000
         access-key: admin
@@ -488,64 +562,27 @@ polystore:
         http-server: https://cdn.example.com
 ```
 
+The complete copy-ready example for every provider is
+[`application-all-providers.yml`](application-all-providers.yml). Provider-specific values stay
+inside the block selected by `type`; fixed container fields such as multipart thresholds remain
+siblings of that block.
+
 ---
 
 ## 7. Configuration (Spring Boot)
 
-```yaml
-polystore:
-  containers:
-    - name: images
-      type: local
-      default: true
-      local:
-        base-path: /data/files
-        http-server: https://cdn.example.com/images
+Use [`application-all-providers.yml`](application-all-providers.yml) as the single complete
+Spring Boot configuration reference. It includes `local`, `minio`, `s3`, `aws`, `ks3`, `azure`,
+`aliyun-oss`, `huawei-obs` and `sftp` in one `polystore.containers` list. All secrets, endpoints,
+paths and bucket/container names are placeholders; production applications should retain only the
+containers and backend dependencies they actually use.
 
-    - name: dicom
-      type: minio
-      minio:
-        end-point: minio.internal:9000
-        access-key: admin
-        secret-key: password
-        bucket-name: dicom
-        with-ssl: true
-        create-bucket-if-not-exists: true
+Each container has two configuration layers:
 
-    - name: ceph-backup
-      type: s3
-      s3:
-        server-url: http://ceph.internal:7480
-        access-key-id: AKIAXXXXXXXX
-        secret-access-key: xxxxxxxx
-        bucket-name: my-backup
-        force-path-style: true
-
-    - name: amazon-archive
-      type: aws
-      aws:
-        region: us-east-1
-        container-name: my-bucket
-        use-credentials: true
-        profile-name: production
-
-    - name: archive
-      type: aliyun-oss
-      aliyun-oss:
-        endpoint: oss-cn-hangzhou.aliyuncs.com
-        access-key-id: LTAIxxxxxxxx
-        access-key-secret: xxxxxxxx
-        bucket-name: my-archive
-
-    - name: ks3-archive
-      type: ks3
-      ks3:
-        endpoint: ks3-cn-beijing.ksyuncs.com
-        bucket-name: my-ks3-bucket
-        access-key: AKLTxxxxxxxx
-        secret-key: xxxxxxxx
-        protocol: https
-```
+1. Fixed fields (`name`, `type`, `default`, `tenant-isolation`, multipart settings and
+   `http-access`) bind directly to the container.
+2. Provider parameters bind from the sibling block selected by `type`, for example `type: minio`
+   reads the `minio:` block.
 
 ---
 
@@ -577,7 +614,7 @@ framework discovers and registers it automatically:
 @Component
 public class MyCustomProvider implements StorageProvider {
     @Override public String getType() { return "my-custom"; }
-    @Override public StorageContainer createContainer(ContainerConfiguration config) { ... }
+    @Override public StorageBackend createBackend(ContainerConfiguration config) { ... }
 }
 ```
 
@@ -640,7 +677,6 @@ the same build, independent of local environments.
 
 ## 12. Future Plans (out of v1 scope)
 
-- **Multipart upload**: chunked uploads for large files against the S3 / MinIO multipart APIs.
 - **File id generator**: timestamp / template based path generation strategies, referencing
   `Kayisoft.Abp.FileStoring.FileIds`.
 - **Mirror sync**: write-through synchronization to multiple containers (primary/backup).

@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
-import io.github.cocosip.polystore.SaveArgs;
 import io.github.cocosip.polystore.StorageContainer;
 import io.github.cocosip.polystore.StorageManager;
 import io.github.cocosip.polystore.TenantIsolationMode;
@@ -112,7 +111,7 @@ class DefaultStorageManagerTest {
         StorageContainer container = manager.getContainer("dicom");
         assertThat(container.getProviderType()).isEqualTo("Minio");
 
-        container.save("a.txt", new ByteArrayInputStream(new byte[0]), SaveArgs.defaults());
+        container.save("a.txt", new ByteArrayInputStream(new byte[0]), 0, ".txt");
 
         assertThat(provider.clientFor("dicom").store()).containsKey("a.txt");
     }
@@ -131,7 +130,7 @@ class DefaultStorageManagerTest {
 
         StorageContainer container = manager.getContainer("images");
         assertThat(container.getProviderType()).isEqualTo("FileSystem");
-        container.save("a.txt", new ByteArrayInputStream(new byte[0]), SaveArgs.defaults());
+        container.save("a.txt", new ByteArrayInputStream(new byte[0]), 0, ".txt");
         assertThat(provider.clientFor("images").store()).containsKey("a.txt");
     }
 
@@ -163,7 +162,7 @@ class DefaultStorageManagerTest {
                 null);
 
         StorageContainer container = manager.getContainer("dicom");
-        container.save("scan.dcm", new ByteArrayInputStream(new byte[0]), SaveArgs.defaults());
+        container.save("scan.dcm", new ByteArrayInputStream(new byte[0]), 0, ".dcm");
 
         assertThat(provider.clientFor("dicom").store()).containsKey("tenant-a/scan.dcm");
         assertThat(container.exists("scan.dcm")).isTrue();
@@ -175,7 +174,7 @@ class DefaultStorageManagerTest {
         DefaultStorageManager manager =
                 new DefaultStorageManager(List.of(config("images", "test")), List.of(provider), () -> "tenant-a", null);
 
-        manager.getContainer("images").save("a.txt", new ByteArrayInputStream(new byte[0]), SaveArgs.defaults());
+        manager.getContainer("images").save("a.txt", new ByteArrayInputStream(new byte[0]), 0, ".txt");
 
         assertThat(provider.clientFor("images").store()).containsKey("a.txt");
     }

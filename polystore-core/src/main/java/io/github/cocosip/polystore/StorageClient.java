@@ -1,101 +1,126 @@
 package io.github.cocosip.polystore;
 
-import io.github.cocosip.polystore.exception.StorageFileAlreadyExistsException;
 import io.github.cocosip.polystore.exception.StorageFileNotFoundException;
 import io.github.cocosip.polystore.exception.StorageOperationException;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
-import java.util.Collection;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.time.Instant;
 
-/**
- * Unified, storage-backend-agnostic file operations API.
- *
- * <p>Implementations are created per container by a {@link StorageProvider}; business code obtains
- * them from {@link StorageManager#getContainer(String)} and never touches backend specifics.</p>
- *
- * <p>Stream ownership: the caller stays responsible for closing the {@code inputStream} passed to
- * {@link #save(String, InputStream, SaveArgs)} and the {@code InputStream} returned by
- * {@link #get(String)}.</p>
- */
+/** Unified public file-storage operations API. */
 public interface StorageClient {
+    /** Saves content using the SharpAbp-aligned argument order. */
+    String save(
+            String fileId,
+            InputStream stream,
+            long contentLength,
+            String ext,
+            boolean overrideExisting,
+            StorageSaveOptions options);
 
-    /**
-     * Saves a file.
-     *
-     * @param fileName    logical file name or path, relative to the container
-     * @param inputStream file content; closed by the caller, not by this method
-     * @param args        save arguments, never {@code null}
-     * @throws StorageFileAlreadyExistsException if the file exists and {@link SaveArgs#isOverwrite()}
-     *                                           is {@code false}
-     * @throws StorageOperationException         if the backend write fails
-     */
-    void save(String fileName, InputStream inputStream, SaveArgs args);
-
-    /**
-     * Saves a file with {@link SaveArgs#defaults()}.
-     *
-     * @param fileName    logical file name or path, relative to the container
-     * @param inputStream file content; closed by the caller, not by this method
-     * @throws StorageFileAlreadyExistsException if the file exists and overwrite is {@code false}
-     * @throws StorageOperationException         if the backend write fails
-     */
-    default void save(String fileName, InputStream inputStream) {
-        save(fileName, inputStream, SaveArgs.defaults());
+    /** Saves content without Polystore-specific options. */
+    default String save(String fileId, InputStream stream, long contentLength, String ext, boolean overrideExisting) {
+        return save(fileId, stream, contentLength, ext, overrideExisting, StorageSaveOptions.defaults());
     }
 
-    /**
-     * Opens the file content.
-     *
-     * @param fileName logical file name or path, relative to the container
-     * @return file content stream; closed by the caller, never {@code null}
-     * @throws StorageFileNotFoundException if the file does not exist
-     * @throws StorageOperationException    if the backend read fails
-     */
-    InputStream get(String fileName);
-
-    /**
-     * Deletes a file. A missing file is silently ignored.
-     *
-     * @param fileName logical file name or path, relative to the container
-     * @throws StorageOperationException if the backend delete fails
-     */
-    void delete(String fileName);
-
-    /**
-     * Checks whether a file exists.
-     *
-     * @param fileName logical file name or path, relative to the container
-     * @return {@code true} if the file exists
-     * @throws StorageOperationException if the backend check fails
-     */
-    boolean exists(String fileName);
-
-    /**
-     * Resolves an accessible URL for the file: object storages return a presigned URL, local-style
-     * backends return the static access path.
-     *
-     * @param fileName logical file name or path, relative to the container
-     * @param args     URL arguments, never {@code null}
-     * @return an accessible URL, never {@code null}
-     * @throws StorageOperationException if the URL cannot be generated
-     */
-    String getUrl(String fileName, UrlArgs args);
-
-    /**
-     * Resolves an accessible URL with {@link UrlArgs#defaults()}.
-     *
-     * @param fileName logical file name or path, relative to the container
-     * @return an accessible URL, never {@code null}
-     * @throws StorageOperationException if the URL cannot be generated
-     */
-    default String getUrl(String fileName) {
-        return getUrl(fileName, UrlArgs.defaults());
+    /** Saves content without replacing an existing file. */
+    default String save(String fileId, InputStream stream, long contentLength, String ext) {
+        return save(fileId, stream, contentLength, ext, false);
     }
 
-    /**
-     * Deletes multiple files. Missing files are silently ignored.
-     *
-     * @param fileNames logical file names or paths, relative to the container
-     * @throws StorageOperationException if a backend delete fails
-     */
-    void deleteAll(Collection<String> fileNames);
+    /** Saves an in-memory byte array. */
+    default String save(String fileId, byte[] bytes, String ext, boolean overrideExisting) {
+        if (bytes == null) throw new IllegalArgumentException("bytes must not be null");
+        try (InputStream stream = new ByteArrayInputStream(bytes)) {
+            return save(fileId, stream, bytes.length, ext, overrideExisting);
+        } catch (IOException e) {
+            throw new StorageOperationException("Failed to close in-memory upload stream", e);
+        }
+    }
+
+    /** Saves an in-memory byte array without replacing an existing file. */
+    default String save(String fileId, byte[] bytes, String ext) {
+        return save(fileId, bytes, ext, false);
+    }
+
+    /** Saves a file-system path. */
+    default String save(String fileId, Path path, boolean overrideExisting) {
+        if (path == null) throw new IllegalArgumentException("path must not be null");
+        String ext = extension(path);
+        try (InputStream stream = Files.newInputStream(path)) {
+            return save(fileId, stream, Files.size(path), ext, overrideExisting);
+        } catch (IOException e) {
+            throw new StorageOperationException("Failed to save path: " + path, e);
+        }
+    }
+
+    /** Saves a file-system path without replacing an existing file. */
+    default String save(String fileId, Path path) {
+        return save(fileId, path, false);
+    }
+
+    /** Deletes a file and reports whether it existed. */
+    boolean delete(String fileId);
+
+    /** Checks whether a file exists. */
+    boolean exists(String fileId);
+
+    /** Downloads a file and reports whether it existed. */
+    boolean download(String fileId, Path path);
+
+    /** Opens a file or returns {@code null} when missing. */
+    InputStream getOrNull(String fileId);
+
+    /** Opens a file or raises a common not-found exception. */
+    default InputStream get(String fileId) {
+        InputStream stream = getOrNull(fileId);
+        if (stream == null) throw new StorageFileNotFoundException(fileId);
+        return stream;
+    }
+
+    /** Returns all bytes and closes the backend stream. */
+    default byte[] getAllBytes(String fileId) {
+        try (InputStream stream = get(fileId)) {
+            return stream.readAllBytes();
+        } catch (IOException e) {
+            throw new StorageOperationException("Failed to read file: " + fileId, e);
+        }
+    }
+
+    /** Returns all bytes, or {@code null} when missing, and closes the backend stream. */
+    default byte[] getAllBytesOrNull(String fileId) {
+        InputStream stream = getOrNull(fileId);
+        if (stream == null) return null;
+        try (stream) {
+            return stream.readAllBytes();
+        } catch (IOException e) {
+            throw new StorageOperationException("Failed to read file: " + fileId, e);
+        }
+    }
+
+    /** Resolves an access URL. */
+    String getAccessUrl(String fileId, Instant expires, boolean checkFileExist);
+
+    /** Resolves an access URL without a preliminary existence check. */
+    default String getAccessUrl(String fileId, Instant expires) {
+        return getAccessUrl(fileId, expires, false);
+    }
+
+    /** Resolves an access URL expiring one hour from now. */
+    default String getAccessUrl(String fileId) {
+        return getAccessUrl(fileId, Instant.now().plus(Duration.ofHours(1)), false);
+    }
+
+    private static String extension(Path path) {
+        Path namePath = path.getFileName();
+        String name = namePath == null ? "" : namePath.toString();
+        int dot = name.lastIndexOf('.');
+        if (dot <= 0 || dot == name.length() - 1) {
+            throw new IllegalArgumentException("path must have a file extension: " + path);
+        }
+        return name.substring(dot);
+    }
 }

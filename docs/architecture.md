@@ -58,8 +58,7 @@ polystore/
 ├── polystore-azure                   # Azure Blob Storage 后端
 ├── polystore-aliyun-oss              # 阿里云 OSS 后端
 ├── polystore-huawei-obs              # 华为云 OBS 后端
-├── polystore-fastdfs                 # FastDFS 后端
-└── polystore-sftp                    # SFTP 后端（Apache Commons VFS / JSch）
+└── polystore-sftp                    # SFTP 后端（JSch + 连接池）
 ```
 
 > 与仓库内其他项目（stow、latchq）保持一致的模块命名：`{name}-core` + `{name}-spring-boot-starter`。原设计中的 `polystore-spring`（Spring 集成）与 `polystore-autoconfigure`（Boot 自动装配）合并为一个 starter 模块。
@@ -260,18 +259,9 @@ public class ContainerInfo {
 
 - 底层使用 `com.huaweicloud:esdk-obs-java`。
 
-### 5.7 FastDFS
+### 5.7 FastDFS（暂不实现）
 
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `trackerServers` | Tracker 服务器地址列表（host:port） | 必填 |
-| `connectTimeout` | 连接超时（毫秒） | `5000` |
-| `networkTimeout` | 读超时（毫秒） | `30000` |
-| `charset` | 字符集 | `UTF-8` |
-| `urlPrefix` | 文件 URL 前缀（Nginx 代理地址） | `""` |
-
-- 底层使用 `com.github.tobato:fastdfs-client`。
-- `getUrl` 返回 `urlPrefix + "/" + fileId`，无预签名。
+- 现有第三方驱动 `com.github.tobato:fastdfs-client` 为 Spring 注入式设计，脱离 Spring 无法干净装配；且 FastDFS 协议不支持按名寻址（文件 ID 由服务端生成），与 `StorageClient` 的按名语义不匹配。按「没有可干净使用的第三方驱动则不做该后端」的原则暂缓，待出现合适的驱动或确定接受 Spring 耦合方案时再评估。
 
 ### 5.8 SFTP
 

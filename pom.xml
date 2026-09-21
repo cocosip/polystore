@@ -38,7 +38,6 @@
     <module>polystore-azure</module>
     <module>polystore-aliyun-oss</module>
     <module>polystore-huawei-obs</module>
-    <module>polystore-fastdfs</module>
     <module>polystore-sftp</module>
   </modules>
 

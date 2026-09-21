@@ -49,7 +49,7 @@
 
 ## 阶段四：存储后端实现 ✅
 
-> 2026-09-21：8 个后端全部实现并独立提交，119 个单元测试全绿。所有后端经 ServiceLoader（`META-INF/services`）注册，仅依赖 core；离线可确定性验证的逻辑（配置解析、客户端装配、预签名/SAS/签名 URL 的本地计算、路径与租户语义）均有测试覆盖。minio / s3 的 Testcontainers 集成测试待 Docker 环境补充。`save` 在 S3 / OSS / Azure / FastDFS 后端缓冲流以获得确定的内容长度，大文件分片上传见「后续规划」。
+> 2026-09-21：7 个后端实现并独立提交，113 个单元测试全绿。FastDFS 按决策移除（见「备忘」）。所有后端经 ServiceLoader（`META-INF/services`）注册，仅依赖 core；离线可确定性验证的逻辑（配置解析、客户端装配、预签名/SAS/签名 URL 的本地计算、路径与租户语义）均有测试覆盖。minio / s3 的 Testcontainers 集成测试待 Docker 环境补充。`save` 在 S3 / OSS / Azure 后端缓冲流以获得确定的内容长度，大文件分片上传见「后续规划」。
 
 ### 4.1 polystore-local ✅
 - [x] `LocalStorageProvider` 实现
@@ -83,12 +83,7 @@
 - [x] 预签名 URL 生成（`createSignedUrl` 离线签名）
 - [x] 单元测试
 
-### 4.7 polystore-fastdfs ✅
-- [x] `FastDfsStorageProvider` 实现
-- [x] `getUrl` 返回 Nginx 代理路径
-- [x] 单元测试
 
-> FastDFS 不支持按名寻址（文件 ID 由服务端生成），故增加本地索引文件（`indexPath` 参数）持久化「逻辑文件名 → group/path」映射，支撑 get/exists/delete/getUrl。
 
 ### 4.8 polystore-sftp ✅
 - [x] `SftpStorageProvider` 实现
@@ -109,6 +104,7 @@
 
 ## 备忘：暂不实现（后续规划）
 
+- **FastDFS 后端**（2026-09-21 移除）：唯一在维护的第三方驱动 tobato fastdfs-client 为 Spring 注入式设计，脱离 Spring 需反射装配（不可接受）；且 FastDFS 协议不支持按名寻址，与 `StorageClient` 按名语义不匹配。待有干净的驱动或确定 Spring 耦合方案时再评估（历史实现见 git：`068dd80`）。
 - 分片上传（Multipart Upload）
 - 文件 ID 生成器（基于时间戳 / 模板的路径生成策略）
 - 镜像同步（写时同步到多个容器）

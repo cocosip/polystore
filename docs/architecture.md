@@ -1,30 +1,36 @@
-# Polystore — 架构与功能设计
+# Polystore — Architecture & Functional Design
 
-> 参考：C# `SharpAbp.Abp.FileStoring` + `Kayisoft.Abp.FileStoring.*`，面向 Java / Spring Boot 生态重新设计。
-
----
-
-## 1. 设计目标
-
-- **统一抽象**：向上提供与存储后端无关的 `StorageClient` API，业务代码无需感知底层存储类型。
-- **多容器并存**：同一进程内可同时配置多个存储容器（container），每个容器独立指定后端类型与连接参数。
-- **可插拔后端**：存储后端以 SPI 形式注册，按需引入对应子模块即可激活，不引入则不加载。
-- **Spring Boot 友好**：提供 `spring-boot-starter` 子模块，基于 `application.yml` 零代码接入。
-- **轻量无侵入**：核心抽象不依赖 Spring，可在非 Spring 环境中手动使用。
+> Reference: the C# `SharpAbp.Abp.FileStoring` + `Kayisoft.Abp.FileStoring.*` ecosystem, redesigned
+> for Java / Spring Boot.
 
 ---
 
-## 2. 整体架构
+## 1. Design Goals
+
+- **Unified abstraction**: expose a storage-backend-agnostic `StorageClient` API so business code
+  never needs to know which storage is underneath.
+- **Multiple containers per process**: several storage containers (containers) can be configured at
+  the same time, each independently selecting its backend type and connection parameters.
+- **Pluggable backends**: backends register through an SPI; adding the corresponding submodule to
+  the classpath activates it, leaving it out keeps it unloaded.
+- **Spring Boot friendly**: a `spring-boot-starter` submodule enables zero-code adoption driven by
+  `application.yml`.
+- **Lightweight and non-invasive**: the core abstractions do not depend on Spring and can be used
+  manually outside Spring environments.
+
+---
+
+## 2. Overall Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                      Business Code                      │
 └──────────────────────────┬──────────────────────────────┘
-                           │ 注入
+                           │ inject
                            ▼
 ┌─────────────────────────────────────────────────────────┐
-│               StorageManager（入口门面）                  │
-│   getContainer(name) → StorageContainer                  │
+│               StorageManager (entry facade)             │
+│   getContainer(name) → StorageContainer                 │
 └──────────────────────────┬──────────────────────────────┘
                            │
           ┌────────────────┼────────────────┐
@@ -36,140 +42,143 @@
    LocalProvider     MinioProvider      S3Provider
 ```
 
-### 核心流程
+### Core Flow
 
-1. 启动时，`StorageManager` 根据配置初始化所有容器，每个容器持有一个 `StorageProvider` 实例。
-2. 业务代码通过 `storageManager.getContainer("容器名")` 获取 `StorageContainer`。
-3. 调用 `StorageContainer` 上的 save / get / delete / exists / getUrl 等操作。
-4. `StorageContainer` 将操作委托给对应的 `StorageProvider` 执行。
+1. At startup the `StorageManager` initializes every container from the configuration; each
+   container holds one `StorageProvider` instance.
+2. Business code obtains a `StorageContainer` via `storageManager.getContainer("name")`.
+3. It invokes operations on the `StorageContainer`: save / get / delete / exists / getUrl, etc.
+4. The `StorageContainer` delegates each operation to its `StorageProvider`.
 
 ---
 
-## 3. 模块划分
+## 3. Module Layout
 
 ```
 polystore/
-├── polystore-core                    # 核心接口与抽象，无 Spring 依赖
-├── polystore-spring-boot-starter     # Spring Boot Starter（StorageManager 装配、自动配置、事件）
+├── polystore-core                    # core interfaces and abstractions, no Spring dependency
+├── polystore-spring-boot-starter     # Spring Boot starter (manager assembly, auto-config, events)
 │
-├── polystore-local                   # 本地文件系统后端
-├── polystore-minio                   # MinIO 后端（MinIO Java SDK）
-├── polystore-s3                      # AWS S3 / S3-compatible 后端（AWS SDK v2）
-├── polystore-azure                   # Azure Blob Storage 后端
-├── polystore-aliyun-oss              # 阿里云 OSS 后端
-├── polystore-huawei-obs              # 华为云 OBS 后端
-└── polystore-sftp                    # SFTP 后端（JSch + 连接池）
+├── polystore-local                   # local filesystem backend
+├── polystore-minio                   # MinIO backend (MinIO Java SDK)
+├── polystore-s3                      # AWS S3 / S3-compatible backend (AWS SDK v2)
+├── polystore-azure                   # Azure Blob Storage backend
+├── polystore-aliyun-oss              # Alibaba Cloud OSS backend
+├── polystore-huawei-obs              # Huawei Cloud OBS backend
+└── polystore-sftp                    # SFTP backend (JSch + connection pool)
 ```
 
-> 与仓库内其他项目（stow、latchq）保持一致的模块命名：`{name}-core` + `{name}-spring-boot-starter`。原设计中的 `polystore-spring`（Spring 集成）与 `polystore-autoconfigure`（Boot 自动装配）合并为一个 starter 模块。
+> Module naming follows the sibling repositories (stow, latchq): `{name}-core` +
+> `{name}-spring-boot-starter`. The originally drafted `polystore-spring` (Spring integration) and
+> `polystore-autoconfigure` (Boot auto-configuration) were merged into a single starter module.
 
-### 依赖层次
+### Dependency Hierarchy
 
 ```
 polystore-spring-boot-starter → polystore-core
               ↓
-      local/minio/...  (各后端仅依赖 core)
+      local/minio/...  (each backend depends only on core)
 ```
 
 ---
 
-## 4. 核心接口（polystore-core）
+## 4. Core Interfaces (polystore-core)
 
-### 4.1 StorageClient — 统一操作接口
+### 4.1 StorageClient — Unified Operations API
 
 ```java
 public interface StorageClient {
 
-    /** 保存文件；inputStream 由调用方关闭 */
+    /** Saves a file; the caller closes the inputStream */
     void save(String fileName, InputStream inputStream, SaveArgs args);
 
-    /** 获取文件流；调用方负责关闭返回的流 */
+    /** Opens the file content; the caller closes the returned stream */
     InputStream get(String fileName);
 
-    /** 删除文件；文件不存在时静默返回 */
+    /** Deletes a file; missing files are silently ignored */
     void delete(String fileName);
 
-    /** 检查文件是否存在 */
+    /** Checks whether the file exists */
     boolean exists(String fileName);
 
-    /** 获取可访问 URL（对象存储返回预签名 URL；本地存储返回访问路径） */
+    /** Resolves an accessible URL (object storages presign; local-style backends compose a path) */
     String getUrl(String fileName, UrlArgs args);
 
-    /** 批量删除 */
+    /** Bulk delete */
     void deleteAll(Collection<String> fileNames);
 }
 ```
 
-### 4.2 StorageContainer — 容器（持有配置 + Client）
+### 4.2 StorageContainer — Container (configuration + client)
 
 ```java
 public interface StorageContainer extends StorageClient {
 
-    /** 容器名称，全局唯一 */
+    /** Container name, unique per manager */
     String getName();
 
-    /** 底层 Provider 类型标识，如 "local"、"minio"、"s3" */
+    /** Backend provider type identifier, e.g. "local", "minio", "s3" */
     String getProviderType();
 
-    /** 容器元数据（Provider 原始配置的只读视图） */
+    /** Container metadata (read-only view of the provider configuration) */
     ContainerInfo getInfo();
 }
 ```
 
-### 4.3 StorageProvider — 后端实现 SPI
+### 4.3 StorageProvider — Backend SPI
 
 ```java
 public interface StorageProvider {
 
-    /** Provider 类型标识，与配置中 type 字段对应，如 "minio" */
+    /** Provider type identifier, matching the configuration `type` field, e.g. "minio" */
     String getType();
 
-    /** 根据容器配置创建一个 StorageContainer 实例 */
+    /** Creates a StorageContainer instance from the container configuration */
     StorageContainer createContainer(ContainerConfiguration config);
 }
 ```
 
-### 4.4 StorageManager — 全局管理器
+### 4.4 StorageManager — Global Manager
 
 ```java
 public interface StorageManager {
 
-    /** 获取指定名称的容器；容器不存在时抛出 ContainerNotFoundException */
+    /** Returns the named container; throws ContainerNotFoundException when absent */
     StorageContainer getContainer(String name);
 
-    /** 获取默认容器（配置中 default: true 的那个） */
+    /** Returns the default container (the one with default: true) */
     StorageContainer getDefaultContainer();
 
-    /** 返回所有已注册容器的名称 */
+    /** Returns the names of all registered containers */
     Collection<String> containerNames();
 }
 ```
 
-### 4.5 辅助类型
+### 4.5 Supporting Types
 
 ```java
-// 保存参数
+// Save parameters
 public class SaveArgs {
-    private String contentType;       // MIME 类型
-    private Map<String, String> metadata; // 自定义元数据
-    private boolean overwrite = true; // 同名文件是否覆盖
+    private String contentType;           // MIME type
+    private Map<String, String> metadata; // custom metadata
+    private boolean overwrite = true;     // overwrite an existing file with the same name
 }
 
-// URL 参数
+// URL parameters
 public class UrlArgs {
-    private Duration expiry = Duration.ofHours(1); // 预签名过期时间
+    private Duration expiry = Duration.ofHours(1); // presigned URL expiry
     private boolean inline = false;                // Content-Disposition inline
 }
 
-// 容器配置（对应 yml 中一个容器块）
+// Container configuration (one yml container entry)
 public class ContainerConfiguration {
     private String name;
-    private String type;          // provider 类型
+    private String type;          // provider type
     private boolean isDefault;
-    private Map<String, Object> properties; // provider 专属参数
+    private Map<String, Object> properties; // provider-specific parameters
 }
 
-// 容器信息（只读）
+// Container info (read-only)
 public class ContainerInfo {
     private String name;
     private String providerType;
@@ -179,143 +188,155 @@ public class ContainerInfo {
 
 ---
 
-## 5. 各存储后端设计
+## 5. Backend Design
 
-### 5.1 Local（本地文件系统）
+### 5.1 Local (local filesystem)
 
-| 参数 | 说明 | 默认值 |
+| Parameter | Description | Default |
 |------|------|--------|
-| `basePath` | 存储根目录（绝对路径） | 必填 |
-| `urlPrefix` | 文件 URL 前缀（HTTP 静态资源地址） | `""` |
-| `createDirectories` | 子目录不存在时自动创建 | `true` |
+| `basePath` | Storage root directory | required |
+| `urlPrefix` | URL prefix (HTTP static-resource address) | `""` |
+| `createDirectories` | Create missing subdirectories on save | `true` |
 
-- `getUrl` 返回 `urlPrefix + "/" + fileName`，不产生预签名。
-- 适合开发环境、内网无对象存储的场景。
+- `getUrl` returns `urlPrefix + "/" + fileName`; nothing is presigned.
+- Suitable for development environments and intranets without object storage.
 
 ### 5.2 MinIO
 
-| 参数 | 说明 | 默认值 |
+| Parameter | Description | Default |
 |------|------|--------|
-| `endpoint` | MinIO 服务地址 | 必填 |
-| `accessKey` | Access Key | 必填 |
-| `secretKey` | Secret Key | 必填 |
-| `bucketName` | 桶名 | 必填 |
-| `region` | 区域 | `""` |
-| `secure` | 是否使用 HTTPS | `false` |
-| `urlExpiry` | 预签名 URL 过期时间（秒） | `3600` |
+| `endpoint` | MinIO service address | required |
+| `accessKey` | Access Key | required |
+| `secretKey` | Secret Key | required |
+| `bucketName` | Bucket name | required |
+| `region` | Region | `""` |
+| `secure` | Use HTTPS | `false` |
+| `urlExpiry` | Presigned URL expiry (seconds) | `3600` |
 
-- 底层使用 `io.minio:minio` SDK。
-- 桶不存在时可选自动创建（`createBucketIfAbsent: true`）。
+- Built on the `io.minio:minio` SDK.
+- Optionally creates the bucket when absent (`createBucketIfAbsent: true`).
 
 ### 5.3 AWS S3 / S3-compatible
 
-| 参数 | 说明 | 默认值 |
+| Parameter | Description | Default |
 |------|------|--------|
-| `endpoint` | 服务端点（留空则使用 AWS 官方） | `""` |
-| `region` | 区域 | 必填 |
-| `accessKeyId` | Access Key ID | 必填 |
-| `secretAccessKey` | Secret Access Key | 必填 |
-| `bucketName` | 桶名 | 必填 |
-| `pathStyleAccess` | 强制路径访问模式（兼容 Ceph 等） | `false` |
-| `urlExpiry` | 预签名 URL 过期时间（秒） | `3600` |
+| `endpoint` | Service endpoint (empty → AWS official) | `""` |
+| `region` | Region | required |
+| `accessKeyId` | Access Key ID | required |
+| `secretAccessKey` | Secret Access Key | required |
+| `bucketName` | Bucket name | required |
+| `pathStyleAccess` | Force path-style addressing (Ceph compatibility) | `false` |
+| `urlExpiry` | Presigned URL expiry (seconds) | `3600` |
 
-- 底层使用 AWS SDK for Java v2（`software.amazon.awssdk`）。
-- 通过 `endpoint` 覆盖可对接 KS3、Ceph、Scaleway 等 S3-compatible 存储。
+- Built on AWS SDK for Java v2 (`software.amazon.awssdk`).
+- The `endpoint` override targets KS3, Ceph, Scaleway and other S3-compatible stores.
 
 ### 5.4 Azure Blob Storage
 
-| 参数 | 说明 | 默认值 |
+| Parameter | Description | Default |
 |------|------|--------|
-| `connectionString` | 存储账户连接字符串 | 必填（与 accountName/Key 二选一） |
-| `accountName` | 存储账户名 | — |
-| `accountKey` | 存储账户密钥 | — |
-| `containerName` | 容器名 | 必填 |
-| `sasExpiry` | SAS Token 过期时间（秒） | `3600` |
+| `connectionString` | Storage account connection string | one of the two credential forms |
+| `accountName` | Storage account name | — |
+| `accountKey` | Storage account key | — |
+| `containerName` | Container name | required |
+| `sasExpiry` | SAS token expiry (seconds) | `3600` |
 
-- 底层使用 `com.azure:azure-storage-blob`。
+- Built on `com.azure:azure-storage-blob`.
 
-### 5.5 阿里云 OSS
+### 5.5 Alibaba Cloud OSS
 
-| 参数 | 说明 | 默认值 |
+| Parameter | Description | Default |
 |------|------|--------|
-| `endpoint` | OSS Endpoint | 必填 |
-| `accessKeyId` | Access Key ID | 必填 |
-| `accessKeySecret` | Access Key Secret | 必填 |
-| `bucketName` | Bucket 名 | 必填 |
-| `urlExpiry` | 预签名 URL 过期时间（秒） | `3600` |
-| `useInternal` | 内网 Endpoint | `false` |
+| `endpoint` | OSS endpoint | required |
+| `accessKeyId` | Access Key ID | required |
+| `accessKeySecret` | Access Key Secret | required |
+| `bucketName` | Bucket name | required |
+| `urlExpiry` | Presigned URL expiry (seconds) | `3600` |
+| `useInternal` | Rewrite the endpoint to the intranet variant | `false` |
 
-- 底层使用 `com.aliyun.oss:aliyun-sdk-oss`。
+- Built on `com.aliyun.oss:aliyun-sdk-oss`.
 
-### 5.6 华为云 OBS
+### 5.6 Huawei Cloud OBS
 
-| 参数 | 说明 | 默认值 |
+| Parameter | Description | Default |
 |------|------|--------|
-| `endpoint` | OBS Endpoint | 必填 |
-| `accessKey` | Access Key | 必填 |
-| `secretKey` | Secret Key | 必填 |
-| `bucketName` | Bucket 名 | 必填 |
-| `urlExpiry` | 预签名 URL 过期时间（秒） | `3600` |
+| `endpoint` | OBS endpoint | required |
+| `accessKey` | Access Key | required |
+| `secretKey` | Secret Key | required |
+| `bucketName` | Bucket name | required |
+| `urlExpiry` | Signed URL expiry (seconds) | `3600` |
 
-- 底层使用 `com.huaweicloud:esdk-obs-java`。
+- Built on `com.huaweicloud:esdk-obs-java`.
 
-### 5.7 FastDFS（暂不实现）
+### 5.7 FastDFS (not implemented)
 
-- 现有第三方驱动 `com.github.tobato:fastdfs-client` 为 Spring 注入式设计，脱离 Spring 无法干净装配；且 FastDFS 协议不支持按名寻址（文件 ID 由服务端生成），与 `StorageClient` 的按名语义不匹配。按「没有可干净使用的第三方驱动则不做该后端」的原则暂缓，待出现合适的驱动或确定接受 Spring 耦合方案时再评估。
+- The only maintained third-party driver, `com.github.tobato:fastdfs-client`, wires its internals
+  via Spring field injection and cannot be assembled cleanly without Spring; additionally the
+  FastDFS protocol cannot address files by name (ids are generated server-side), which does not
+  match the name-based `StorageClient` semantics. Per the rule "no backend without a cleanly
+  usable third-party driver", this backend is deferred until a suitable driver appears or a
+  Spring-coupled approach is accepted.
 
 ### 5.8 SFTP
 
-| 参数 | 说明 | 默认值 |
+| Parameter | Description | Default |
 |------|------|--------|
-| `host` | SFTP 主机 | 必填 |
-| `port` | 端口 | `22` |
-| `username` | 用户名 | 必填 |
-| `password` | 密码 | `""` |
-| `privateKeyPath` | 私钥文件路径（与 password 二选一） | `""` |
-| `basePath` | 远程根目录 | 必填 |
-| `urlPrefix` | 文件 URL 前缀 | `""` |
-| `poolSize` | 连接池大小 | `5` |
+| `host` | SFTP host | required |
+| `port` | Port | `22` |
+| `username` | User name | required |
+| `password` | Password | `""` |
+| `privateKeyPath` | Private key file path (one of the two credential forms) | `""` |
+| `basePath` | Remote root directory | required |
+| `urlPrefix` | File URL prefix | `""` |
+| `poolSize` | Connection pool size | `5` |
 
-- 底层使用 `com.github.mwiede:jsch`（JSch 维护分支）。
-- 连接复用连接池，避免每次操作重新建立 SSH 会话。
+- Built on `com.github.mwiede:jsch` (the maintained JSch fork).
+- Connections are pooled so SSH sessions are not re-established per operation.
 
 ---
 
-## 6. 多租户支持
+## 6. Multi-Tenancy
 
-### 6.1 设计范围与边界
+### 6.1 Scope and Boundaries
 
-C# 端的多租户依赖 ABP 完整的多租户模块（`ICurrentTenant`、租户切换、租户生命周期管理等）。polystore **不引入任何租户管理框架**，只解决一个具体问题：
+The C# counterpart relies on the full ABP tenancy module (`ICurrentTenant`, tenant switching,
+tenant lifecycle management, ...). Polystore **does not introduce any tenant management
+framework**; it solves exactly one problem:
 
-> 同一个存储容器（同一个 Bucket）内，不同租户的文件通过路径前缀物理隔离。
+> Files of different tenants inside the same storage container (the same bucket) are physically
+> separated by a path prefix.
 
-C# 端 `AppendTenantToPath=true` 对应的正是这个能力，polystore 将其作为容器级的轻量配置实现。
+The C# `AppendTenantToPath=true` switch is precisely this capability, implemented here as a
+lightweight per-container setting.
 
-### 6.2 租户 ID 的来源
+### 6.2 Tenant Id Sources
 
-polystore 对多租户的全部依赖只有一个极简接口：
+Polystore's entire tenancy surface is one minimal interface:
 
 ```java
 @FunctionalInterface
 public interface TenantIdSupplier {
-    /** 返回当前租户 ID；无多租户场景返回 null */
+    /** Returns the current tenant id; null when the application is not multi-tenant */
     String get();
 }
 ```
 
-**主路径（隐式）**：应用注册一次 `TenantIdSupplier`，之后所有调用点无需重复传递租户 ID，框架自动读取：
+**Primary path (implicit)**: the application registers a `TenantIdSupplier` once; afterwards no
+call site needs to pass a tenant id — the framework reads it automatically:
 
 ```java
-// 注册一次，接入自己的租户上下文
+// register once, plugging into your tenant context
 storageManager = PolystoreBuilder.builder()
     .tenantIdSupplier(() -> MyTenantContext.currentTenantId())
     .build();
 
-// 调用点干净，无样板代码
+// call sites stay clean, no boilerplate
 container.save("photo.jpg", stream, SaveArgs.defaults());
 ```
 
-**覆盖路径（显式）**：`SaveArgs` 可显式传入 `tenantId`，优先级高于 `TenantIdSupplier`，适用于后台批处理、跨租户管理操作、单元测试等场景：
+**Override path (explicit)**: `SaveArgs` accepts an explicit `tenantId` that takes priority over
+the `TenantIdSupplier` — useful for background batch jobs, cross-tenant administration and unit
+tests:
 
 ```java
 container.save("photo.jpg", stream, SaveArgs.builder()
@@ -323,44 +344,46 @@ container.save("photo.jpg", stream, SaveArgs.builder()
     .build());
 ```
 
-**租户 ID 解析优先级**：
+**Resolution priority**:
 
 ```
-SaveArgs.tenantId（显式）> TenantIdSupplier（隐式）> null
+SaveArgs.tenantId (explicit) > TenantIdSupplier (implicit) > null
 ```
 
-不注册 `TenantIdSupplier` 时默认返回 `null`。`PATH_PREFIX` 模式下最终租户 ID 为 null 时抛出 `TenantIdMissingException`。
+Without a registered `TenantIdSupplier` the resolved id defaults to `null`. Under `PATH_PREFIX`
+a final `null` raises `TenantIdMissingException`.
 
-### 6.3 容器级隔离开关
+### 6.3 Per-Container Isolation Switch
 
-每个容器独立控制是否启用路径隔离，默认关闭：
+Each container independently enables path isolation, off by default:
 
 ```java
 public enum TenantIsolationMode {
-    NONE,        // 所有租户共享路径（默认）
-    PATH_PREFIX  // 文件路径自动加 {tenantId}/ 前缀
+    NONE,        // all tenants share the same path space (default)
+    PATH_PREFIX  // file paths are transparently prefixed with {tenantId}/
 }
 ```
 
-### 6.4 路径转换规则
+### 6.4 Path Translation Rules
 
-`tenantIsolation = PATH_PREFIX` 时，所有操作透明加前缀：
+With `tenantIsolation = PATH_PREFIX`, every operation transparently adds the prefix:
 
-| 调用方传入 | 实际操作路径 |
+| Caller passes | Actual path operated on |
 |-----------|-------------|
 | `images/photo.jpg` | `{tenantId}/images/photo.jpg` |
 | `2024/01/abc.dcm` | `{tenantId}/2024/01/abc.dcm` |
 
-租户 ID 按优先级解析：`SaveArgs.tenantId` > `TenantIdSupplier` > null。最终为 null 且容器开启了 `PATH_PREFIX` 时，抛出 `TenantIdMissingException`。
+The tenant id resolves by priority: `SaveArgs.tenantId` > `TenantIdSupplier` > null. When the
+final id is null and the container uses `PATH_PREFIX`, `TenantIdMissingException` is thrown.
 
-### 6.5 yml 配置示例
+### 6.5 yml Example
 
 ```yaml
 polystore:
   containers:
     - name: dicom
       type: minio
-      tenant-isolation: PATH_PREFIX   # 开启路径隔离
+      tenant-isolation: PATH_PREFIX   # enable path isolation
       minio:
         endpoint: http://minio.internal:9000
         access-key: admin
@@ -369,7 +392,7 @@ polystore:
 
     - name: public-assets
       type: local
-      tenant-isolation: NONE          # 公共资源，不隔离（默认可省略）
+      tenant-isolation: NONE          # shared assets, no isolation (default, may be omitted)
       local:
         base-path: /data/public
         url-prefix: https://cdn.example.com
@@ -377,7 +400,7 @@ polystore:
 
 ---
 
-## 7. 配置方案（Spring Boot）
+## 7. Configuration (Spring Boot)
 
 ```yaml
 polystore:
@@ -417,25 +440,29 @@ polystore:
 
 ---
 
-## 8. 异常体系
+## 8. Exception Hierarchy
 
 ```
-PolystoreException (基类)
-├── ContainerNotFoundException        # 容器名不存在
-├── StorageProviderNotFoundException  # Provider 类型未注册
-├── FileNotFoundException             # 文件不存在
-├── FileAlreadyExistsException        # 文件已存在且 overwrite=false
-├── TenantIdMissingException          # PATH_PREFIX 模式下无法解析到租户 ID
-└── StorageOperationException         # 后端 I/O 操作失败（包含 cause）
+PolystoreException (base)
+├── ContainerNotFoundException                 # container name not registered
+├── StorageProviderNotFoundException           # provider type not registered
+├── StorageFileNotFoundException               # file not found
+├── StorageFileAlreadyExistsException          # file exists and overwrite=false
+├── TenantIdMissingException                   # PATH_PREFIX without a resolvable tenant id
+└── StorageOperationException                  # backend I/O failure (carries the cause)
 ```
+
+The file-related exceptions carry the `Storage` prefix because their plain names clash with
+`java.io.FileNotFoundException` and `java.nio.file.FileAlreadyExistsException`.
 
 ---
 
-## 9. 扩展点
+## 9. Extension Points
 
-### 8.1 自定义 Provider
+### 9.1 Custom Providers
 
-实现 `StorageProvider` 接口，将实现类注册为 Spring Bean，框架会自动发现并注册：
+Implement the `StorageProvider` interface and register the implementation as a Spring bean; the
+framework discovers and registers it automatically:
 
 ```java
 @Component
@@ -445,69 +472,67 @@ public class MyCustomProvider implements StorageProvider {
 }
 ```
 
-### 8.2 文件名拦截器（FileNameResolver）
+Backends that must stay Spring-free register through `ServiceLoader` instead
+(`META-INF/services/io.github.cocosip.polystore.StorageProvider`); beans take precedence on a
+type clash.
 
-在 save / get 前对文件名做统一转换（如路径规范化、加前缀）：
+### 9.2 Operation Events
 
-```java
-public interface FileNameResolver {
-    String resolve(String rawFileName, String containerName);
-}
-```
-
-### 8.3 操作事件
-
-保存、删除完成后发布 Spring `ApplicationEvent`，便于审计日志、缓存失效等：
+After successful saves and deletes the starter publishes Spring `ApplicationEvent`s for audit
+logging, cache invalidation and similar concerns:
 
 - `FileSavedEvent`
 - `FileDeletedEvent`
 
 ---
 
-## 10. 构建工具规范
+## 10. Build Tooling
 
-**本仓库使用 Maven Wrapper，禁止依赖系统全局 Maven。**
+**This repository uses the Maven Wrapper; never rely on a system-wide Maven.**
 
-所有构建命令统一通过仓库根目录的 `mvnw`（Linux/macOS）或 `mvnw.cmd`（Windows）执行：
+All build commands go through `mvnw` (Linux/macOS) or `mvnw.cmd` (Windows) at the repository
+root:
 
 ```bash
-# 构建
+# build
 ./mvnw clean install
 
-# 跳过测试
+# skip tests
 ./mvnw clean install -DskipTests
 
-# 运行单模块测试
+# run a single module's tests
 ./mvnw test -pl polystore-core
 ```
 
-Maven Wrapper 所需文件：
+Wrapper layout:
 
 ```
 polystore/
 ├── .mvn/
 │   └── wrapper/
-│       └── maven-wrapper.properties   # 指定 Maven 版本与下载地址
-├── mvnw                               # Unix 启动脚本
-└── mvnw.cmd                           # Windows 启动脚本
+│       └── maven-wrapper.properties   # pins the Maven version and download URL
+├── mvnw                               # Unix launcher
+└── mvnw.cmd                           # Windows launcher
 ```
 
-`maven-wrapper.properties` 中固定 Maven 版本，确保所有开发者与 CI 使用同一版本，不受本地环境影响。
+The Maven version is pinned in `maven-wrapper.properties` (3.9.16) so every developer and CI uses
+the same build, independent of local environments.
 
 ---
 
-## 11. 模块依赖说明（Maven）
+## 11. Maven Dependency Guide
 
-| 场景 | 引入依赖 |
+| Scenario | Dependencies |
 |------|---------|
-| 只要核心接口（不依赖 Spring） | `polystore-core` |
-| Spring Boot 应用，yml 配置 | `polystore-spring-boot-starter` + 对应后端子模块 |
+| Core interfaces only (no Spring) | `polystore-core` |
+| Spring Boot application with yml configuration | `polystore-spring-boot-starter` + the backend modules |
 
 ---
 
-## 12. 后续规划（超出 v1 范围）
+## 12. Future Plans (out of v1 scope)
 
-- **分片上传（Multipart Upload）**：大文件分块上传，对接 S3 / MinIO 分片 API。
-- **文件 ID 生成器**：参考 `Kayisoft.Abp.FileStoring.FileIds`，提供基于时间戳 / 模板的路径生成策略。
-- **镜像同步**：写时同步到多个容器（主备模式）。
-- **CDN 签名 URL**：针对 CloudFront、阿里云 CDN 等生成带签名的 CDN 地址。
+- **Multipart upload**: chunked uploads for large files against the S3 / MinIO multipart APIs.
+- **File id generator**: timestamp / template based path generation strategies, referencing
+  `Kayisoft.Abp.FileStoring.FileIds`.
+- **Mirror sync**: write-through synchronization to multiple containers (primary/backup).
+- **CDN signed URLs**: signed CDN addresses for CloudFront, Alibaba Cloud CDN, etc.

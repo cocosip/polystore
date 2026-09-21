@@ -7,6 +7,10 @@ separate starter module.
 
 The project is currently versioned as `0.1.0-SNAPSHOT`.
 
+Further design material lives in the [`docs/`](docs/) index: the
+[architecture & functional design](docs/architecture.md) and the
+[development plan](docs/development-plan.md).
+
 ## Features
 
 - **Unified API** — save / get / delete / exists / getUrl / deleteAll, independent of the backend.

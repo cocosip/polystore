@@ -64,7 +64,7 @@ passes with every test green.
 
 ## Documentation
 
-- All documentation (`README.md`, `docs/`, `CHANGELOG.md`, AGENTS.md) is written in English.
+- All documentation (`README.md`, `docs/`, AGENTS.md) is written in English.
   Keep it current when behavior changes.
 - Check off tasks in [`docs/development-plan.md`](docs/development-plan.md) only after the work
   is verified, and append dated implementation notes for decisions that diverge from the original

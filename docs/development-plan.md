@@ -122,7 +122,7 @@
 - [x] Javadoc across all modules (the build runs a javadoc generation gate; public API fully
       covered)
 - [x] README (project overview, quick start, per-backend configuration guide)
-- [x] CHANGELOG initialized (Keep a Changelog format)
+- [x] CHANGELOG initialized (Keep a Changelog format) — later removed, see Deferred notes
 - [x] Maven release configuration (`distributionManagement` / Sonatype Central + `release` profile
       with GPG signing, in place since the skeleton phase)
 - [x] CI pipeline (GitHub Actions: Ubuntu + Windows matrix, Temurin JDK 21, `mvnw verify`)
@@ -136,6 +136,8 @@
   assembly outside Spring (unacceptable); FastDFS also cannot address files by name, clashing with
   the name-based `StorageClient` semantics. Re-evaluate when a clean driver appears or a
   Spring-coupled approach is accepted (historical implementation: commit `068dd80`).
+- **CHANGELOG.md** (removed 2026-09-21): the Keep a Changelog file was deleted from the
+  repository.
 - Multipart upload
 - File id generator (timestamp / template based path generation)
 - Mirror sync (write-through to multiple containers)

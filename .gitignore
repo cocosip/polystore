@@ -35,6 +35,7 @@ Thumbs.db
 .cache/
 docs/superpowers/
 .superpowers/
+.zcodeignore
 
 # Maven and Java IDE output
 target/

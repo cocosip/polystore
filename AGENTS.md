@@ -70,15 +70,3 @@ passes with every test green.
   is verified, and append dated implementation notes for decisions that diverge from the original
   design.
 
-## Git and Commits
-
-- Branch: `master` is the working branch; commit directly unless the task says otherwise.
-- Commit messages follow Gitmoji + Conventional Commits with English content
-  (`/commit` encodes the full rules): `<emoji> <type>(scope): description`, subject and body
-  lines ≤ 100 characters, imperative mood, no trailing period. Emoji/type map: ✨ feat, 🐛 fix,
-  🔧 chore, 🏗️ build, 👷 ci, 📝 docs, ♻️ refactor, ⚡️ perf, 💄 style, ✅ test, 🌐 i18n,
-  ⏪️ revert.
-- Split unrelated changes into separate commits (build/skeleton, feature per module, docs) and
-  commit after each completed unit of work.
-- Commit only when the build passes and every test is green; verify via the Maven exit code, not
-  by eyeballing filtered output.

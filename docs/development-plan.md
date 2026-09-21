@@ -4,97 +4,94 @@
 
 ---
 
-## 阶段一：项目骨架
+## 阶段一：项目骨架 ✅
 
-- [ ] 初始化 Maven 多模块父 POM
-- [ ] 配置 Maven Wrapper（固定版本）
-- [ ] 各子模块目录与 `pom.xml` 占位创建
-- [ ] 配置统一的编译版本（Java 17+）、编码、插件版本管理
+- [x] 初始化 Maven 多模块父 POM
+- [x] 配置 Maven Wrapper（固定版本，统一 3.9.16）
+- [x] 各子模块目录与 `pom.xml` 占位创建
+- [x] 配置统一的编译版本（Java 21）、编码、插件版本管理
 
----
-
-## 阶段二：polystore-core
-
-- [ ] `StorageClient` 接口
-- [ ] `StorageContainer` 接口
-- [ ] `StorageProvider` 接口（SPI）
-- [ ] `StorageManager` 接口
-- [ ] `SaveArgs` / `UrlArgs` 辅助类型
-- [ ] `ContainerConfiguration` / `ContainerInfo`
-- [ ] `TenantIdSupplier` 接口
-- [ ] `TenantIsolationMode` 枚举
-- [ ] 异常体系（`PolystoreException` 及子类）
-- [ ] 单元测试（核心逻辑覆盖）
+> 2026-09-21：模块结构与版本体系与 stow / latchq 对齐——模块采用 `{name}-core` + `{name}-spring-boot-starter` 模式；依赖与插件版本采用 stow 的一套（Spring Boot 3.5.6、JUnit 5.13.4、compiler 3.14.1、jacoco 0.8.13、spotless 2.46.1 palantir 格式 + sortPom、spotbugs 4.9.8.1、flatten 1.7.3、enforcer 3.6.2 等），并补充发布元数据（scm / license / central 发布 profile）。
 
 ---
 
-## 阶段三：polystore-spring
+## 阶段二：polystore-core ✅
 
+- [x] `StorageClient` 接口
+- [x] `StorageContainer` 接口
+- [x] `StorageProvider` 接口（SPI）
+- [x] `StorageManager` 接口
+- [x] `SaveArgs` / `UrlArgs` 辅助类型
+- [x] `ContainerConfiguration` / `ContainerInfo`
+- [x] `TenantIdSupplier` 接口
+- [x] `TenantIsolationMode` 枚举
+- [x] 异常体系（`PolystoreException` 及子类）
+- [x] 单元测试（核心逻辑覆盖）
+
+> 2026-09-21：24 个单元测试全绿。实现说明：包名 `io.github.cocosip.polystore`，异常位于 `exception` 子包；`SaveArgs` / `ContainerConfiguration` 均为不可变对象（builder + 防御性拷贝 + 只读 map）；`SaveArgs.save(fileName, stream)` 与 `getUrl(fileName)` 提供默认参数重载。文件不存在/已存在异常因与 `java.io` / `java.nio.file` 同名类冲突，命名为 `StorageFileNotFoundException` / `StorageFileAlreadyExistsException`。
+
+---
+
+## 阶段三：polystore-spring-boot-starter
+
+- [ ] `PolystoreProperties` 配置属性类（绑定 yml）
 - [ ] `DefaultStorageManager` 实现（Provider 注册、容器初始化）
 - [ ] 租户路径前缀拦截逻辑（`TenantIsolationMode.PATH_PREFIX`）
 - [ ] `StorageProvider` 自动发现（扫描 Spring Bean）
+- [ ] `PolystoreAutoConfiguration` 自动装配类 + `AutoConfiguration.imports` 注册
 - [ ] `FileSavedEvent` / `FileDeletedEvent` 事件发布
-- [ ] 单元测试
-
----
-
-## 阶段四：polystore-autoconfigure
-
-- [ ] `PolystoreProperties` 配置属性类（绑定 yml）
-- [ ] `PolystoreAutoConfiguration` 自动装配类
-- [ ] `spring.factories` / `AutoConfiguration.imports` 注册
 - [ ] 配置元数据（`additional-spring-configuration-metadata.json`，支持 IDE 提示）
-- [ ] 集成测试（Spring Boot 上下文启动验证）
+- [ ] 单元测试（含 Spring Boot 上下文启动验证）
 
 ---
 
-## 阶段五：存储后端实现
+## 阶段四：存储后端实现
 
-### 5.1 polystore-local
+### 4.1 polystore-local
 - [ ] `LocalStorageProvider` 实现
 - [ ] 子目录自动创建
 - [ ] 单元测试
 
-### 5.2 polystore-minio
+### 4.2 polystore-minio
 - [ ] `MinioStorageProvider` 实现
 - [ ] Bucket 不存在时自动创建（可配置）
 - [ ] 预签名 URL 生成
 - [ ] 单元测试（需本地 MinIO 或 Testcontainers）
 
-### 5.3 polystore-s3
+### 4.3 polystore-s3
 - [ ] `S3StorageProvider` 实现（AWS SDK v2）
 - [ ] S3-compatible endpoint 支持（pathStyleAccess）
 - [ ] 预签名 URL 生成
 - [ ] 单元测试（Testcontainers LocalStack）
 
-### 5.4 polystore-aliyun-oss
+### 4.4 polystore-aliyun-oss
 - [ ] `AliyunOssStorageProvider` 实现
 - [ ] 预签名 URL 生成
 - [ ] 单元测试
 
-### 5.5 polystore-azure
+### 4.5 polystore-azure
 - [ ] `AzureBlobStorageProvider` 实现
 - [ ] SAS Token URL 生成
 - [ ] 单元测试
 
-### 5.6 polystore-huawei-obs
+### 4.6 polystore-huawei-obs
 - [ ] `HuaweiObsStorageProvider` 实现
 - [ ] 预签名 URL 生成
 - [ ] 单元测试
 
-### 5.7 polystore-fastdfs
+### 4.7 polystore-fastdfs
 - [ ] `FastDfsStorageProvider` 实现
 - [ ] `getUrl` 返回 Nginx 代理路径
 - [ ] 单元测试
 
-### 5.8 polystore-sftp
+### 4.8 polystore-sftp
 - [ ] `SftpStorageProvider` 实现
 - [ ] JSch 连接池
 - [ ] 单元测试
 
 ---
 
-## 阶段六：质量与发布
+## 阶段五：质量与发布
 
 - [ ] 各模块 Javadoc 补全
 - [ ] README（项目简介、快速开始、各后端配置说明）

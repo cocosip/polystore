@@ -9,7 +9,7 @@
 - **统一抽象**：向上提供与存储后端无关的 `StorageClient` API，业务代码无需感知底层存储类型。
 - **多容器并存**：同一进程内可同时配置多个存储容器（container），每个容器独立指定后端类型与连接参数。
 - **可插拔后端**：存储后端以 SPI 形式注册，按需引入对应子模块即可激活，不引入则不加载。
-- **Spring Boot 友好**：提供 `autoconfigure` 子模块，基于 `application.yml` 零代码接入。
+- **Spring Boot 友好**：提供 `spring-boot-starter` 子模块，基于 `application.yml` 零代码接入。
 - **轻量无侵入**：核心抽象不依赖 Spring，可在非 Spring 环境中手动使用。
 
 ---
@@ -49,26 +49,27 @@
 
 ```
 polystore/
-├── polystore-core              # 核心接口与抽象，无 Spring 依赖
-├── polystore-spring            # Spring 集成（StorageManager Bean、事件、条件装配）
-├── polystore-autoconfigure     # Spring Boot AutoConfiguration，读取 yml 配置
+├── polystore-core                    # 核心接口与抽象，无 Spring 依赖
+├── polystore-spring-boot-starter     # Spring Boot Starter（StorageManager 装配、自动配置、事件）
 │
-├── polystore-local             # 本地文件系统后端
-├── polystore-minio             # MinIO 后端（MinIO Java SDK）
-├── polystore-s3                # AWS S3 / S3-compatible 后端（AWS SDK v2）
-├── polystore-azure             # Azure Blob Storage 后端
-├── polystore-aliyun-oss        # 阿里云 OSS 后端
-├── polystore-huawei-obs        # 华为云 OBS 后端
-├── polystore-fastdfs           # FastDFS 后端
-└── polystore-sftp              # SFTP 后端（Apache Commons VFS / JSch）
+├── polystore-local                   # 本地文件系统后端
+├── polystore-minio                   # MinIO 后端（MinIO Java SDK）
+├── polystore-s3                      # AWS S3 / S3-compatible 后端（AWS SDK v2）
+├── polystore-azure                   # Azure Blob Storage 后端
+├── polystore-aliyun-oss              # 阿里云 OSS 后端
+├── polystore-huawei-obs              # 华为云 OBS 后端
+├── polystore-fastdfs                 # FastDFS 后端
+└── polystore-sftp                    # SFTP 后端（Apache Commons VFS / JSch）
 ```
+
+> 与仓库内其他项目（stow、latchq）保持一致的模块命名：`{name}-core` + `{name}-spring-boot-starter`。原设计中的 `polystore-spring`（Spring 集成）与 `polystore-autoconfigure`（Boot 自动装配）合并为一个 starter 模块。
 
 ### 依赖层次
 
 ```
-autoconfigure → spring → core
-     ↓              ↓
-  local/minio/...  (各后端仅依赖 core)
+polystore-spring-boot-starter → polystore-core
+              ↓
+      local/minio/...  (各后端仅依赖 core)
 ```
 
 ---
@@ -510,8 +511,7 @@ polystore/
 | 场景 | 引入依赖 |
 |------|---------|
 | 只要核心接口（不依赖 Spring） | `polystore-core` |
-| Spring 应用，手动配置 | `polystore-spring` + 对应后端子模块 |
-| Spring Boot 应用，yml 配置 | `polystore-autoconfigure` + 对应后端子模块 |
+| Spring Boot 应用，yml 配置 | `polystore-spring-boot-starter` + 对应后端子模块 |
 
 ---
 

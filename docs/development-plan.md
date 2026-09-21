@@ -32,16 +32,18 @@
 
 ---
 
-## 阶段三：polystore-spring-boot-starter
+## 阶段三：polystore-spring-boot-starter ✅
 
-- [ ] `PolystoreProperties` 配置属性类（绑定 yml）
-- [ ] `DefaultStorageManager` 实现（Provider 注册、容器初始化）
-- [ ] 租户路径前缀拦截逻辑（`TenantIsolationMode.PATH_PREFIX`）
-- [ ] `StorageProvider` 自动发现（扫描 Spring Bean）
-- [ ] `PolystoreAutoConfiguration` 自动装配类 + `AutoConfiguration.imports` 注册
-- [ ] `FileSavedEvent` / `FileDeletedEvent` 事件发布
-- [ ] 配置元数据（`additional-spring-configuration-metadata.json`，支持 IDE 提示）
-- [ ] 单元测试（含 Spring Boot 上下文启动验证）
+- [x] `PolystoreProperties` 配置属性类（绑定 yml）
+- [x] `DefaultStorageManager` 实现（Provider 注册、容器初始化）
+- [x] 租户路径前缀拦截逻辑（`TenantIsolationMode.PATH_PREFIX`）
+- [x] `StorageProvider` 自动发现（扫描 Spring Bean）
+- [x] `PolystoreAutoConfiguration` 自动装配类 + `AutoConfiguration.imports` 注册
+- [x] `FileSavedEvent` / `FileDeletedEvent` 事件发布
+- [x] 配置元数据（`additional-spring-configuration-metadata.json`，支持 IDE 提示）
+- [x] 单元测试（含 Spring Boot 上下文启动验证）
+
+> 2026-09-21：59 个单元测试全绿（core 28 + starter 31）。实现说明：core 新增 `DefaultStorageContainer`（后端模块只依赖 core，具体容器实现必须下沉到 core 供 Provider 复用）；Provider 双通道发现（Spring Bean 优先 + 后端模块经 ServiceLoader 声明，二者都不依赖 Spring）；yml 中 provider 专属参数按 type 键分组（如 `minio:` 块），`ContainerConfigurationFactory` 经 Binder API 读取并合并进 `ContainerConfiguration.properties`（键保持原样，由后端自行归一化）；默认容器绑定键为 `default`；装饰器顺序 raw → tenant 前缀 → 事件（事件携带调用方逻辑文件名，不含租户前缀）；非 Spring 场景用 `PolystoreBuilder` 手动装配。
 
 ---
 

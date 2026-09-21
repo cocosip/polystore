@@ -47,49 +47,53 @@
 
 ---
 
-## 阶段四：存储后端实现
+## 阶段四：存储后端实现 ✅
 
-### 4.1 polystore-local
-- [ ] `LocalStorageProvider` 实现
-- [ ] 子目录自动创建
-- [ ] 单元测试
+> 2026-09-21：8 个后端全部实现并独立提交，119 个单元测试全绿。所有后端经 ServiceLoader（`META-INF/services`）注册，仅依赖 core；离线可确定性验证的逻辑（配置解析、客户端装配、预签名/SAS/签名 URL 的本地计算、路径与租户语义）均有测试覆盖。minio / s3 的 Testcontainers 集成测试待 Docker 环境补充。`save` 在 S3 / OSS / Azure / FastDFS 后端缓冲流以获得确定的内容长度，大文件分片上传见「后续规划」。
 
-### 4.2 polystore-minio
-- [ ] `MinioStorageProvider` 实现
-- [ ] Bucket 不存在时自动创建（可配置）
-- [ ] 预签名 URL 生成
-- [ ] 单元测试（需本地 MinIO 或 Testcontainers）
+### 4.1 polystore-local ✅
+- [x] `LocalStorageProvider` 实现
+- [x] 子目录自动创建
+- [x] 单元测试
 
-### 4.3 polystore-s3
-- [ ] `S3StorageProvider` 实现（AWS SDK v2）
-- [ ] S3-compatible endpoint 支持（pathStyleAccess）
-- [ ] 预签名 URL 生成
-- [ ] 单元测试（Testcontainers LocalStack）
+### 4.2 polystore-minio ✅
+- [x] `MinioStorageProvider` 实现
+- [x] Bucket 不存在时自动创建（可配置，`createBucketIfAbsent`）
+- [x] 预签名 URL 生成（离线计算）
+- [x] 单元测试（离线部分：配置解析 / 预签名输出；Testcontainers 集成测试待 Docker 环境补充）
 
-### 4.4 polystore-aliyun-oss
-- [ ] `AliyunOssStorageProvider` 实现
-- [ ] 预签名 URL 生成
-- [ ] 单元测试
+### 4.3 polystore-s3 ✅
+- [x] `S3StorageProvider` 实现（AWS SDK v2）
+- [x] S3-compatible endpoint 支持（pathStyleAccess，client 与 presigner 同步生效）
+- [x] 预签名 URL 生成（离线计算）
+- [x] 单元测试（离线部分：virtual-host / path-style 预签名、参数校验；Testcontainers LocalStack 待 Docker 环境补充）
 
-### 4.5 polystore-azure
-- [ ] `AzureBlobStorageProvider` 实现
-- [ ] SAS Token URL 生成
-- [ ] 单元测试
+### 4.4 polystore-aliyun-oss ✅
+- [x] `AliyunOssStorageProvider` 实现
+- [x] 预签名 URL 生成（离线计算）
+- [x] 单元测试
 
-### 4.6 polystore-huawei-obs
-- [ ] `HuaweiObsStorageProvider` 实现
-- [ ] 预签名 URL 生成
-- [ ] 单元测试
+### 4.5 polystore-azure ✅
+- [x] `AzureBlobStorageProvider` 实现
+- [x] SAS Token URL 生成（离线签名）
+- [x] 单元测试
 
-### 4.7 polystore-fastdfs
-- [ ] `FastDfsStorageProvider` 实现
-- [ ] `getUrl` 返回 Nginx 代理路径
-- [ ] 单元测试
+### 4.6 polystore-huawei-obs ✅
+- [x] `HuaweiObsStorageProvider` 实现
+- [x] 预签名 URL 生成（`createSignedUrl` 离线签名）
+- [x] 单元测试
 
-### 4.8 polystore-sftp
-- [ ] `SftpStorageProvider` 实现
-- [ ] JSch 连接池
-- [ ] 单元测试
+### 4.7 polystore-fastdfs ✅
+- [x] `FastDfsStorageProvider` 实现
+- [x] `getUrl` 返回 Nginx 代理路径
+- [x] 单元测试
+
+> FastDFS 不支持按名寻址（文件 ID 由服务端生成），故增加本地索引文件（`indexPath` 参数）持久化「逻辑文件名 → group/path」映射，支撑 get/exists/delete/getUrl。
+
+### 4.8 polystore-sftp ✅
+- [x] `SftpStorageProvider` 实现
+- [x] JSch 连接池（固定大小、懒建、按次借用归还）
+- [x] 单元测试（内存假通道，覆盖租约复用与文件语义）
 
 ---
 

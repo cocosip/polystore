@@ -72,6 +72,43 @@ class ContainerConfigurationFactoryTest {
     }
 
     @Test
+    void providerSectionShouldResolveIgnoringTypeCase() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setProperty("polystore.containers[0].minio.endpoint", "http://minio.internal:9000");
+
+        io.github.cocosip.polystore.ContainerConfiguration config = ContainerConfigurationFactory.create(
+                        properties(container("dicom", "Minio")), environment)
+                .get(0);
+
+        assertThat(config.getType()).isEqualTo("Minio");
+        assertThat(config.getProperty("endpoint")).isEqualTo("http://minio.internal:9000");
+    }
+
+    @Test
+    void providerSectionShouldResolveIgnoringTypeSeparators() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setProperty("polystore.containers[0].aliyun_oss.endpoint", "http://oss.internal");
+
+        io.github.cocosip.polystore.ContainerConfiguration config = ContainerConfigurationFactory.create(
+                        properties(container("dicom", "Aliyun-Oss")), environment)
+                .get(0);
+
+        assertThat(config.getType()).isEqualTo("Aliyun-Oss");
+        assertThat(config.getProperty("endpoint")).isEqualTo("http://oss.internal");
+    }
+
+    @Test
+    void scalarProviderSectionOfAnotherSpellingShouldBeRejected() {
+        MockEnvironment environment = new MockEnvironment();
+        environment.setProperty("polystore.containers[0].minio", "oops");
+
+        assertThatThrownBy(() ->
+                        ContainerConfigurationFactory.create(properties(container("dicom", "Minio")), environment))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("mapping");
+    }
+
+    @Test
     void scalarProviderSectionShouldBeRejected() {
         MockEnvironment environment = new MockEnvironment();
         environment.setProperty("polystore.containers[0].minio", "oops");

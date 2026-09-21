@@ -4,20 +4,26 @@ import io.github.cocosip.polystore.ContainerConfiguration;
 import io.github.cocosip.polystore.DefaultStorageContainer;
 import io.github.cocosip.polystore.StorageContainer;
 import io.github.cocosip.polystore.StorageProvider;
-import io.github.cocosip.polystore.exception.StorageOperationException;
-import io.github.cocosip.polystore.util.ConfigUtils;
-import io.minio.BucketExistsArgs;
-import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 
 /**
- * Storage provider of type {@code minio}.
+ * Storage provider of type {@code minio}, named after {@code MinioFileProviderConfigurationNames}
+ * of the reference <i>SharpAbp.Abp.FileStoring</i> framework.
  *
- * <p>Parameters: {@code endpoint} (required), {@code accessKey} / {@code secretKey} (required),
- * {@code bucketName} (required), {@code region} (default empty), {@code secure} (default
- * {@code false}, forces HTTPS when the endpoint carries no scheme), {@code urlExpiry} (default
- * 3600 seconds, presigned URL expiry) and {@code createBucketIfAbsent} (default {@code false},
- * creates the bucket at container initialization — a network call).</p>
+ * <p>Provider parameters:</p>
+ * <ul>
+ *   <li>{@code endPoint} (required) — MinIO service address; a scheme prefix is added when absent,
+ *       taken from {@code withSSL}</li>
+ *   <li>{@code accessKey} / {@code secretKey} (required) — credentials</li>
+ *   <li>{@code bucketName} (required) — bucket name</li>
+ *   <li>{@code withSSL} (default {@code false}) — use HTTPS</li>
+ *   <li>{@code createBucketIfNotExists} (default {@code false}) — create the bucket lazily before
+ *       the first upload</li>
+ *   <li>{@code region} (default {@code us-east-1}, Polystore extension) — signing region; setting
+ *       it lets {@code getUrl} compute the presigned URL locally instead of querying the bucket
+ *       location over the network</li>
+ *   <li>{@code urlExpiry} (default {@code 3600}, Polystore extension) — presigned URL expiry</li>
+ * </ul>
  */
 public class MinioStorageProvider implements StorageProvider {
 
@@ -31,42 +37,18 @@ public class MinioStorageProvider implements StorageProvider {
 
     @Override
     public StorageContainer createContainer(ContainerConfiguration config) {
-        var properties = config.getProperties();
-        String endpoint = ConfigUtils.requireString(properties, "endpoint");
-        String accessKey = ConfigUtils.requireString(properties, "accessKey");
-        String secretKey = ConfigUtils.requireString(properties, "secretKey");
-        String bucketName = ConfigUtils.requireString(properties, "bucketName");
-        String region = ConfigUtils.optString(properties, "region", "");
-        boolean secure = ConfigUtils.optBoolean(properties, "secure", false);
-        int urlExpiry = ConfigUtils.optInt(properties, "urlExpiry", 3600);
-        boolean createBucketIfAbsent = ConfigUtils.optBoolean(properties, "createBucketIfAbsent", false);
+        MinioStorageConfiguration configuration = MinioStorageConfiguration.from(config);
 
-        String resolvedEndpoint = endpoint;
-        if (secure && !endpoint.startsWith("http://") && !endpoint.startsWith("https://")) {
-            resolvedEndpoint = "https://" + endpoint;
-        }
-        MinioClient.Builder builder =
-                MinioClient.builder().endpoint(resolvedEndpoint).credentials(accessKey, secretKey);
-        if (!region.isEmpty()) {
-            builder.region(region);
-        }
-        MinioClient client = builder.build();
-
-        if (createBucketIfAbsent) {
-            ensureBucket(client, bucketName);
-        }
-        return DefaultStorageContainer.from(config, new MinioStorageClient(client, bucketName, urlExpiry));
-    }
-
-    private void ensureBucket(MinioClient client, String bucketName) {
-        try {
-            boolean exists = client.bucketExists(
-                    BucketExistsArgs.builder().bucket(bucketName).build());
-            if (!exists) {
-                client.makeBucket(MakeBucketArgs.builder().bucket(bucketName).build());
-            }
-        } catch (Exception e) {
-            throw new StorageOperationException("Failed to ensure bucket: " + bucketName, e);
-        }
+        MinioClient.Builder builder = MinioClient.builder()
+                .endpoint(configuration.endPoint())
+                .credentials(configuration.accessKey(), configuration.secretKey())
+                .region(configuration.region());
+        return DefaultStorageContainer.from(
+                config,
+                new MinioStorageClient(
+                        builder.build(),
+                        configuration.bucketName(),
+                        configuration.urlExpirySeconds(),
+                        configuration.createBucketIfNotExists()));
     }
 }

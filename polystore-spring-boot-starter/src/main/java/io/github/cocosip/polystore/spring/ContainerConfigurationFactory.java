@@ -2,6 +2,7 @@ package io.github.cocosip.polystore.spring;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
 import io.github.cocosip.polystore.TenantIsolationMode;
+import io.github.cocosip.polystore.util.ConfigUtils;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,8 +17,11 @@ import org.springframework.core.env.Environment;
  * <p>The typed properties cover identity fields (name, type, default flag, tenant isolation);
  * the provider-specific section is read from the same {@code polystore.containers[n]} entries via
  * the {@code Binder} API and keyed by the provider type string — a container of {@code type:
- * minio} reads its parameters from the sibling {@code minio:} block. Section keys are copied as
- * written (kebab-case keys stay kebab-case); backends normalize when reading them.</p>
+ * minio} reads its parameters from the sibling {@code minio:} block. The section key is resolved
+ * first exactly and then by normalized comparison (case-, {@code -} and {@code _}-insensitive), so
+ * {@code type: Minio} reads a {@code minio:} block and {@code type: Aliyun-Oss} reads an
+ * {@code aliyun_oss:} block. Section keys are copied as written (kebab-case keys stay kebab-case);
+ * backends normalize when reading them.</p>
  */
 public final class ContainerConfigurationFactory {
 
@@ -58,6 +62,9 @@ public final class ContainerConfigurationFactory {
     private static Map<String, Object> providerSection(Map<String, Object> entry, String type) {
         Object section = entry.get(type);
         if (section == null) {
+            section = findSectionByNormalizedKey(entry, type);
+        }
+        if (section == null) {
             return Map.of();
         }
         if (!(section instanceof Map)) {
@@ -68,6 +75,19 @@ public final class ContainerConfigurationFactory {
         @SuppressWarnings("unchecked")
         Map<String, Object> properties = (Map<String, Object>) section;
         return new LinkedHashMap<>(properties);
+    }
+
+    private static Object findSectionByNormalizedKey(Map<String, Object> entry, String type) {
+        String normalizedType = ConfigUtils.normalizeKey(type);
+        if (normalizedType == null) {
+            return null;
+        }
+        for (Map.Entry<String, Object> candidate : entry.entrySet()) {
+            if (normalizedType.equals(ConfigUtils.normalizeKey(candidate.getKey()))) {
+                return candidate.getValue();
+            }
+        }
+        return null;
     }
 
     private static ContainerConfiguration toConfiguration(

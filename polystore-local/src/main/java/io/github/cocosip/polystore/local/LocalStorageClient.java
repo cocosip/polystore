@@ -13,27 +13,47 @@ import java.nio.file.StandardCopyOption;
 import java.util.Collection;
 
 /**
- * Filesystem-backed {@link StorageClient}. File names are resolved under the configured base path;
- * parent directories are created on demand when {@code createDirectories} is enabled.
+ * Filesystem-backed {@link StorageClient}. Files are stored under
+ * {@code basePath/[containerName/]fileName}; the container segment is prepended only when
+ * {@code appendContainerNameToBasePath} is enabled, mirroring SharpAbp's
+ * {@code DefaultFilePathCalculator}.
  *
- * <p>The local filesystem has no object metadata, so {@code SaveArgs.contentType} is accepted but
- * not persisted. {@code getUrl} composes {@code urlPrefix + "/" + fileName} without signing.</p>
+ * <p>A file name that normalizes to a path outside {@code basePath} is rejected with a
+ * {@link StorageOperationException}. The local filesystem has no object metadata, so
+ * {@code SaveArgs.contentType} is accepted but not persisted. {@link #getUrl(String, UrlArgs)}
+ * returns the stored file's relative path, prefixed by {@code httpServer} when one is configured,
+ * and never signs it.</p>
  */
 public final class LocalStorageClient implements StorageClient {
 
     private final Path basePath;
-    private final String urlPrefix;
+    private final String containerName;
+    private final boolean appendContainerNameToBasePath;
+    private final String httpServer;
 
     /**
      * Creates the client.
      *
-     * @param basePath          storage root directory, never {@code null}
-     * @param urlPrefix         HTTP static-resource prefix, may be {@code null} or empty
-     * @param createDirectories whether to create missing directories on save
+     * @param basePath                      storage root directory, never {@code null}
+     * @param containerName                 container name prepended to stored paths, may be
+     *                                      {@code null} or empty to disable the segment
+     * @param appendContainerNameToBasePath whether stored paths are prefixed with a
+     *                                      {@code containerName} segment
+     * @param httpServer                    HTTP static-resource server returned by
+     *                                      {@link #getUrl(String, UrlArgs)}, may be {@code null} or
+     *                                      empty
+     * @param createDirectories             whether to create the base directory on construction
      */
-    public LocalStorageClient(Path basePath, String urlPrefix, boolean createDirectories) {
+    public LocalStorageClient(
+            Path basePath,
+            String containerName,
+            boolean appendContainerNameToBasePath,
+            String httpServer,
+            boolean createDirectories) {
         this.basePath = basePath;
-        this.urlPrefix = urlPrefix == null ? "" : urlPrefix;
+        this.containerName = containerName == null ? "" : containerName.trim();
+        this.appendContainerNameToBasePath = appendContainerNameToBasePath;
+        this.httpServer = httpServer == null ? "" : httpServer.trim();
         if (createDirectories) {
             try {
                 Files.createDirectories(basePath);
@@ -86,10 +106,11 @@ public final class LocalStorageClient implements StorageClient {
 
     @Override
     public String getUrl(String fileName, UrlArgs args) {
-        if (urlPrefix.isEmpty()) {
-            return fileName;
+        String relativePath = relativePath(fileName);
+        if (httpServer.isEmpty()) {
+            return relativePath;
         }
-        return urlPrefix + "/" + fileName;
+        return ensureTrailingSlash(httpServer) + trimLeadingSlashes(relativePath);
     }
 
     @Override
@@ -99,7 +120,7 @@ public final class LocalStorageClient implements StorageClient {
 
     private Path resolve(String fileName) {
         try {
-            Path resolved = basePath.resolve(fileName).normalize();
+            Path resolved = basePath.resolve(relativePath(fileName)).normalize();
             if (!resolved.startsWith(basePath.normalize())) {
                 throw new StorageOperationException("File name escapes the base path: " + fileName);
             }
@@ -109,5 +130,31 @@ public final class LocalStorageClient implements StorageClient {
         } catch (Exception e) {
             throw new StorageOperationException("Invalid file name: " + fileName, e);
         }
+    }
+
+    /**
+     * Returns the path of a file relative to the storage root, i.e.
+     * {@code [containerName/]fileName}.
+     *
+     * @param fileName file name as passed by the caller
+     * @return relative path, never {@code null}
+     */
+    private String relativePath(String fileName) {
+        if (appendContainerNameToBasePath && !containerName.isEmpty()) {
+            return containerName + "/" + fileName;
+        }
+        return fileName;
+    }
+
+    private static String ensureTrailingSlash(String value) {
+        return value.endsWith("/") ? value : value + "/";
+    }
+
+    private static String trimLeadingSlashes(String value) {
+        int index = 0;
+        while (index < value.length() && value.charAt(index) == '/') {
+            index++;
+        }
+        return value.substring(index);
     }
 }

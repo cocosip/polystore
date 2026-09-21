@@ -8,25 +8,28 @@ import io.github.cocosip.polystore.StorageContainer;
 import io.github.cocosip.polystore.UrlArgs;
 import io.github.cocosip.polystore.exception.StorageOperationException;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class S3StorageProviderTest {
 
-    private static final Map<String, Object> AWS = Map.of(
-            "region", "cn-northwest-1",
-            "accessKeyId", "AKIAIOSFODNN7EXAMPLE",
-            "secretAccessKey", "wJalrXUtnFEMI",
-            "bucketName", "my-backup");
-
-    private static final Map<String, Object> COMPATIBLE = Map.of(
-            "region", "us-east-1",
+    private static final Map<String, Object> PATH_STYLE = Map.of(
+            "serverUrl", "http://ceph.internal:7480",
             "accessKeyId", "ak",
             "secretAccessKey", "sk",
             "bucketName", "backup",
-            "endpoint", "http://ceph.internal:7480",
-            "pathStyleAccess", true,
+            "forcePathStyle", true,
             "urlExpiry", 60);
+
+    private static StorageContainer container(Map<String, Object> properties) {
+        return new S3StorageProvider()
+                .createContainer(ContainerConfiguration.builder()
+                        .name("backup")
+                        .type("s3")
+                        .properties(properties)
+                        .build());
+    }
 
     @Test
     void providerTypeShouldBeS3() {
@@ -34,61 +37,99 @@ class S3StorageProviderTest {
     }
 
     @Test
-    void shouldBuildContainerFromAwsConfiguration() {
-        StorageContainer container = new S3StorageProvider()
-                .createContainer(ContainerConfiguration.builder()
-                        .name("backup")
-                        .type("s3")
-                        .properties(AWS)
-                        .build());
+    void shouldBuildContainerFromCompatibleStoreConfiguration() {
+        StorageContainer container = container(PATH_STYLE);
 
         assertThat(container.getProviderType()).isEqualTo("s3");
         assertThat(container.getInfo().getName()).isEqualTo("backup");
     }
 
     @Test
-    void presignedUrlShouldTargetTheVirtualHostedByDefault() {
-        StorageContainer container = new S3StorageProvider()
-                .createContainer(ContainerConfiguration.builder()
-                        .name("backup")
-                        .type("s3")
-                        .properties(AWS)
-                        .build());
-
-        String url = container.getUrl("2024/dump.sql");
-
-        assertThat(url).startsWith("https://my-backup.s3.");
-        assertThat(url).contains("X-Amz-Signature");
+    void serverUrlShouldBeRequired() {
+        assertThatThrownBy(() -> new S3StorageProvider()
+                        .createContainer(ContainerConfiguration.builder()
+                                .name("backup")
+                                .type("s3")
+                                .properties(Map.of("accessKeyId", "ak", "secretAccessKey", "sk", "bucketName", "b"))
+                                .build()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("serverUrl");
     }
 
     @Test
-    void pathStyleShouldAddressEndpointWithBucketInPath() {
-        StorageContainer container = new S3StorageProvider()
-                .createContainer(ContainerConfiguration.builder()
-                        .name("backup")
-                        .type("s3")
-                        .properties(COMPATIBLE)
-                        .build());
-
-        String url = container.getUrl("a.txt");
+    void pathStyleShouldAddressServerUrlWithBucketInPath() {
+        String url = container(PATH_STYLE).getUrl("a.txt");
 
         assertThat(url).startsWith("http://ceph.internal:7480/backup/a.txt");
         assertThat(url).contains("X-Amz-Expires=60");
     }
 
     @Test
-    void explicitUrlArgsExpiryShouldOverrideContainerDefault() {
-        StorageContainer container = new S3StorageProvider()
-                .createContainer(ContainerConfiguration.builder()
-                        .name("backup")
-                        .type("s3")
-                        .properties(COMPATIBLE)
-                        .build());
+    void protocolShouldSupplyTheMissingScheme() {
+        Map<String, Object> properties = new HashMap<>(PATH_STYLE);
+        properties.put("serverUrl", "ceph.internal:7480");
+        properties.put("protocol", 2);
 
-        String url = container.getUrl(
-                "a.txt", UrlArgs.builder().expiry(Duration.ofMinutes(10)).build());
+        assertThat(container(properties).getUrl("a.txt")).startsWith("https://ceph.internal:7480/backup/a.txt");
+    }
+
+    @Test
+    void textualProtocolShouldBeAccepted() {
+        Map<String, Object> properties = new HashMap<>(PATH_STYLE);
+        properties.put("serverUrl", "ceph.internal:7480");
+        properties.put("protocol", "HTTPS");
+
+        assertThat(container(properties).getUrl("a.txt")).startsWith("https://ceph.internal:7480/backup/a.txt");
+    }
+
+    @Test
+    void httpShouldBeTheDefaultProtocol() {
+        Map<String, Object> properties = new HashMap<>(PATH_STYLE);
+        properties.put("serverUrl", "ceph.internal:7480");
+
+        assertThat(container(properties).getUrl("a.txt")).startsWith("http://ceph.internal:7480/backup/a.txt");
+    }
+
+    @Test
+    void authenticationRegionShouldDefaultToUsEast1() {
+        String url = container(PATH_STYLE).getUrl("a.txt");
+
+        assertThat(url).contains("%2Fus-east-1%2Fs3%2Faws4_request");
+    }
+
+    @Test
+    void authenticationRegionShouldBeHonoured() {
+        Map<String, Object> properties = new HashMap<>(PATH_STYLE);
+        properties.put("authenticationRegion", "cn-north-1");
+
+        assertThat(container(properties).getUrl("a.txt")).contains("%2Fcn-north-1%2Fs3%2Faws4_request");
+    }
+
+    @Test
+    void useChunkEncodingShouldBeOptional() {
+        Map<String, Object> properties = new HashMap<>(PATH_STYLE);
+        properties.put("useChunkEncoding", true);
+
+        assertThat(container(properties).getProviderType()).isEqualTo("s3");
+    }
+
+    @Test
+    void explicitUrlArgsExpiryShouldOverrideContainerDefault() {
+        String url = container(PATH_STYLE)
+                .getUrl(
+                        "a.txt",
+                        UrlArgs.builder().expiry(Duration.ofMinutes(10)).build());
 
         assertThat(url).contains("X-Amz-Expires=600");
+    }
+
+    @Test
+    void createBucketIfNotExistsShouldNotTouchTheNetworkAtConstruction() {
+        Map<String, Object> properties = new HashMap<>(PATH_STYLE);
+        properties.put("serverUrl", "http://127.0.0.1:1");
+        properties.put("createBucketIfNotExists", true);
+
+        assertThat(container(properties).getProviderType()).isEqualTo("s3");
     }
 
     @Test
@@ -98,38 +139,48 @@ class S3StorageProviderTest {
         assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
                         .name("c")
                         .type("s3")
-                        .properties(Map.of("accessKeyId", "a", "secretAccessKey", "s", "bucketName", "b"))
-                        .build()))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("region");
-        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
-                        .name("c")
-                        .type("s3")
-                        .properties(Map.of("region", "us-east-1", "secretAccessKey", "s", "bucketName", "b"))
+                        .properties(Map.of("serverUrl", "http://x", "secretAccessKey", "s", "bucketName", "b"))
                         .build()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("accessKeyId");
+        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+                        .name("c")
+                        .type("s3")
+                        .properties(Map.of("serverUrl", "http://x", "accessKeyId", "a", "secretAccessKey", "s"))
+                        .build()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("bucketName");
     }
 
     @Test
-    void invalidEndpointShouldBeRejected() {
+    void invalidServerUrlShouldBeRejected() {
         assertThatThrownBy(() -> new S3StorageProvider()
                         .createContainer(ContainerConfiguration.builder()
                                 .name("c")
                                 .type("s3")
                                 .properties(Map.of(
-                                        "region",
-                                        "us-east-1",
+                                        "serverUrl",
+                                        "::::not-a-uri",
                                         "accessKeyId",
                                         "a",
                                         "secretAccessKey",
                                         "s",
                                         "bucketName",
-                                        "b",
-                                        "endpoint",
-                                        "::::not-a-uri"))
+                                        "b"))
                                 .build()))
                 .isInstanceOf(StorageOperationException.class)
-                .hasMessageContaining("endpoint");
+                .hasMessageContaining("serverUrl");
+    }
+
+    @Test
+    void sharpAbpQualifiedKeysShouldBeAccepted() {
+        StorageContainer container = container(Map.of(
+                "S3.ServerUrl", "http://ceph.internal:7480",
+                "S3.AccessKeyId", "ak",
+                "S3.SecretAccessKey", "sk",
+                "S3.BucketName", "backup",
+                "S3.ForcePathStyle", true));
+
+        assertThat(container.getUrl("a.txt")).startsWith("http://ceph.internal:7480/backup/a.txt");
     }
 }

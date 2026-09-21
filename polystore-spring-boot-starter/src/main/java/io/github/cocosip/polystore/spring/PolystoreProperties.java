@@ -21,7 +21,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *       type: minio
  *       tenant-isolation: PATH_PREFIX
  *       minio:
- *         endpoint: http://minio.internal:9000
+ *         end-point: minio.internal:9000
  * </pre>
  */
 @ConfigurationProperties(prefix = "polystore")

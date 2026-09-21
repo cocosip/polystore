@@ -6,9 +6,11 @@ import io.github.cocosip.polystore.StorageClient;
 import io.github.cocosip.polystore.UrlArgs;
 import io.github.cocosip.polystore.exception.StorageFileNotFoundException;
 import io.github.cocosip.polystore.exception.StorageOperationException;
+import io.minio.BucketExistsArgs;
 import io.minio.GetObjectArgs;
 import io.minio.GetObjectResponse;
 import io.minio.GetPresignedObjectUrlArgs;
+import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
@@ -23,31 +25,41 @@ import java.util.concurrent.TimeUnit;
  * MinIO-backed {@link StorageClient}. All operations target one bucket through a
  * {@link MinioClient}; {@code getUrl} returns a presigned GET URL computed locally (no network
  * round trip).
+ *
+ * <p>When {@code createBucketIfNotExists} is enabled the bucket is created lazily right before the
+ * first upload, matching the reference provider.</p>
  */
 public final class MinioStorageClient implements StorageClient {
 
     private final MinioClient client;
     private final String bucketName;
     private final int urlExpirySeconds;
+    private final boolean createBucketIfNotExists;
 
     /**
      * Creates the client.
      *
-     * @param client           initialized MinIO client, never {@code null}
-     * @param bucketName       target bucket, never {@code null}
-     * @param urlExpirySeconds presigned URL expiry in seconds
+     * @param client                    initialized MinIO client, never {@code null}
+     * @param bucketName                target bucket, never {@code null}
+     * @param urlExpirySeconds          presigned URL expiry in seconds
+     * @param createBucketIfNotExists   create the bucket before the first upload when absent
      */
     @SuppressFBWarnings(
             value = "EI_EXPOSE_REP2",
             justification = "wrapping the backend SDK client is the purpose of this class")
-    public MinioStorageClient(MinioClient client, String bucketName, int urlExpirySeconds) {
+    public MinioStorageClient(
+            MinioClient client, String bucketName, int urlExpirySeconds, boolean createBucketIfNotExists) {
         this.client = client;
         this.bucketName = bucketName;
         this.urlExpirySeconds = urlExpirySeconds;
+        this.createBucketIfNotExists = createBucketIfNotExists;
     }
 
     @Override
     public void save(String fileName, InputStream inputStream, SaveArgs args) {
+        if (createBucketIfNotExists) {
+            ensureBucket();
+        }
         try {
             PutObjectArgs.Builder builder = PutObjectArgs.builder().bucket(bucketName).object(fileName).stream(
                     inputStream, -1, PutObjectArgs.MIN_MULTIPART_SIZE);
@@ -127,5 +139,18 @@ public final class MinioStorageClient implements StorageClient {
     @Override
     public void deleteAll(Collection<String> fileNames) {
         fileNames.forEach(this::delete);
+    }
+
+    /** Creates the bucket when it is absent; a present bucket is left untouched. */
+    private void ensureBucket() {
+        try {
+            boolean exists = client.bucketExists(
+                    BucketExistsArgs.builder().bucket(bucketName).build());
+            if (!exists) {
+                client.makeBucket(MakeBucketArgs.builder().bucket(bucketName).build());
+            }
+        } catch (Exception e) {
+            throw new StorageOperationException("Failed to ensure bucket: " + bucketName, e);
+        }
     }
 }

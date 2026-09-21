@@ -90,8 +90,63 @@ class DefaultStorageManagerTest {
 
     @Test
     void unregisteredProviderTypeShouldBeRejected() {
-        assertThatThrownBy(() -> manager(config("images", "minio")))
-                .isInstanceOf(StorageProviderNotFoundException.class);
+        assertThatThrownBy(() -> manager(config("images", "Minio")))
+                .isInstanceOf(StorageProviderNotFoundException.class)
+                .hasMessageContaining("Minio")
+                .satisfies(throwable -> assertThat(((StorageProviderNotFoundException) throwable).getProviderType())
+                        .isEqualTo("Minio"));
+    }
+
+    @Test
+    void providerTypeLookupShouldIgnoreCase() {
+        TestStorageProvider provider = new TestStorageProvider("minio");
+        DefaultStorageManager manager = new DefaultStorageManager(
+                List.of(ContainerConfiguration.builder()
+                        .name("dicom")
+                        .type("Minio")
+                        .build()),
+                List.of(provider),
+                null,
+                null);
+
+        StorageContainer container = manager.getContainer("dicom");
+        assertThat(container.getProviderType()).isEqualTo("Minio");
+
+        container.save("a.txt", new ByteArrayInputStream(new byte[0]), SaveArgs.defaults());
+
+        assertThat(provider.clientFor("dicom").store()).containsKey("a.txt");
+    }
+
+    @Test
+    void providerAliasShouldResolveTheConfiguredType() {
+        TestStorageProvider provider = new TestStorageProvider("local", List.of("FileSystem"));
+        DefaultStorageManager manager = new DefaultStorageManager(
+                List.of(ContainerConfiguration.builder()
+                        .name("images")
+                        .type("FileSystem")
+                        .build()),
+                List.of(provider),
+                null,
+                null);
+
+        StorageContainer container = manager.getContainer("images");
+        assertThat(container.getProviderType()).isEqualTo("FileSystem");
+        container.save("a.txt", new ByteArrayInputStream(new byte[0]), SaveArgs.defaults());
+        assertThat(provider.clientFor("images").store()).containsKey("a.txt");
+    }
+
+    @Test
+    void canonicalTypeShouldWinOverAnotherProvidersAlias() {
+        DefaultStorageManager manager = new DefaultStorageManager(
+                List.of(ContainerConfiguration.builder()
+                        .name("images")
+                        .type("FileSystem")
+                        .build()),
+                List.of(new TestStorageProvider("local", List.of("FileSystem")), new TestStorageProvider("filesystem")),
+                null,
+                null);
+
+        assertThat(manager.getContainer("images").getProviderType()).isEqualTo("FileSystem");
     }
 
     @Test

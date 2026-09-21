@@ -42,7 +42,9 @@ macOS.
 | `polystore-spring-boot-starter` | yml configuration, manager assembly, events, auto-configuration |
 | `polystore-local` | Local filesystem backend |
 | `polystore-minio` | MinIO backend (MinIO Java SDK) |
-| `polystore-s3` | AWS S3 / S3-compatible backend (AWS SDK v2) |
+| `polystore-s3` | S3-**compatible** stores — Ceph, KS3, MinIO, R2, ... (AWS SDK v2) |
+| `polystore-aws` | Amazon Web Services S3 only (AWS SDK v2) |
+| `polystore-ks3` | Kingsoft Cloud KS3 (KS3 Java SDK, native `KSS` signature) |
 | `polystore-azure` | Azure Blob Storage backend |
 | `polystore-aliyun-oss` | Alibaba Cloud OSS backend |
 | `polystore-huawei-obs` | Huawei Cloud OBS backend |
@@ -75,18 +77,20 @@ polystore:
       type: local
       default: true
       local:
-        base-path: /data/files/images
-        url-prefix: https://cdn.example.com/images
+        base-path: /data/files
+        append-container-name-to-base-path: true
+        http-server: https://cdn.example.com
 
     - name: dicom
       type: minio
       tenant-isolation: PATH_PREFIX
       minio:
-        endpoint: http://minio.internal:9000
+        end-point: minio.internal:9000
         access-key: admin
         secret-key: password
         bucket-name: dicom
-        create-bucket-if-absent: true
+        with-ssl: true
+        create-bucket-if-not-exists: true
 ```
 
 ```java
@@ -114,8 +118,14 @@ public class DicomService {
 ```
 
 Provider-specific parameters (the `minio:` block above) live in a sibling key named after the
-container's `type`. Parameters are matched case- and separator-insensitively, so camelCase and
-kebab-case both work.
+container's `type`; the section key and the `type` value are matched case- and
+separator-insensitively, so `type: Minio` reads a `minio:` block and `type: Aliyun-Oss` reads an
+`aliyun_oss:` block. Parameter names follow the reference
+[SharpAbp.Abp.FileStoring](https://github.com/cocosip/sharp-abp) configuration names, and are
+matched case- and separator-insensitively too — `end-point:`, `endPoint:` and the qualified
+`Minio.EndPoint:` form all resolve to the same parameter. The reference provider names that differ
+from the Polystore type ids are accepted as aliases: `FileSystem` (local), `Aliyun` (aliyun-oss),
+`Obs` (huawei-obs) and `KS3` (ks3).
 
 ### Tenant isolation
 
@@ -161,36 +171,89 @@ StorageManager manager = PolystoreBuilder.builder()
 
 ## Backend configuration
 
-### local
+Parameter names mirror the reference `SharpAbp.Abp.FileStoring.{Provider}` configuration names;
+parameters marked *extension* exist only in Polystore. `create*IfNotExists` flags create the
+bucket/container **lazily on the first save**, so container startup never touches the network.
+
+### local (reference provider: `FileSystem`)
 
 | Parameter | Required | Default | Description |
 |---|---|---|---|
 | `basePath` | yes | — | Storage root directory |
-| `urlPrefix` | no | `""` | HTTP prefix returned by `getUrl` |
-| `createDirectories` | no | `true` | Create missing directories on save |
+| `appendContainerNameToBasePath` | no | `true` | Store under `{basePath}/{containerName}` |
+| `httpServer` | no | `""` | HTTP prefix returned by `getUrl` |
+| `createDirectories` | no | `true` | Create missing directories on save (*extension*) |
 
 ### minio
 
 | Parameter | Required | Default | Description |
 |---|---|---|---|
-| `endpoint` | yes | — | MinIO service address |
+| `endPoint` | yes | — | MinIO service address (scheme optional) |
 | `accessKey` / `secretKey` | yes | — | Credentials |
 | `bucketName` | yes | — | Bucket name |
-| `region` | no | `""` | Region |
-| `secure` | no | `false` | Force HTTPS when the endpoint has no scheme |
-| `urlExpiry` | no | `3600` | Presigned URL expiry (seconds) |
-| `createBucketIfAbsent` | no | `false` | Create the bucket at startup (network call) |
+| `withSSL` | no | `false` | Use HTTPS |
+| `createBucketIfNotExists` | no | `false` | Create the bucket on first save |
+| `region` | no | `us-east-1` | Signing region; keeps `getUrl` local instead of a bucket-location lookup (*extension*) |
+| `urlExpiry` | no | `3600` | Presigned URL expiry in seconds (*extension*) |
 
-### s3 (AWS SDK v2, S3-compatible)
+### s3 (S3-compatible stores)
+
+Use this provider for every S3-compatible store (Ceph, KS3, MinIO, Cloudflare R2, ...). Amazon Web
+Services itself belongs to the `aws` provider below.
 
 | Parameter | Required | Default | Description |
 |---|---|---|---|
-| `region` | yes | — | Region |
+| `serverUrl` | yes | — | Service URL, e.g. `http://ceph.internal:7480` |
 | `accessKeyId` / `secretAccessKey` | yes | — | Credentials |
 | `bucketName` | yes | — | Bucket name |
-| `endpoint` | no | `""` | Override for Ceph, KS3 and other compatible stores |
-| `pathStyleAccess` | no | `false` | Path-style addressing (applies to presigner too) |
-| `urlExpiry` | no | `3600` | Presigned URL expiry (seconds) |
+| `forcePathStyle` | no | `false` | Path-style addressing (applies to the presigner too) |
+| `useChunkEncoding` | no | `false` | AWS chunked payload signing |
+| `protocol` | no | `1` | `1` = HTTP, `2` = HTTPS (or `http`/`https`); used when `serverUrl` has no scheme |
+| `authenticationRegion` | no | `us-east-1` | Region used for AWS Signature Version 4 |
+| `createBucketIfNotExists` | no | `false` | Create the bucket on first save |
+| `urlExpiry` | no | `3600` | Presigned URL expiry in seconds (*extension*) |
+
+### aws (Amazon Web Services S3 only)
+
+| Parameter | Required | Default | Description |
+|---|---|---|---|
+| `region` | yes | — | AWS region, e.g. `us-east-1` |
+| `containerName` | yes | — | Bucket name |
+| `accessKeyId` / `secretAccessKey` | one of | — | Static credentials |
+| `useCredentials` | one of | `false` | Use `profileName` or the AWS default provider chain |
+| `useTemporaryCredentials` | one of | `false` | Session credentials from STS `GetSessionToken` |
+| `useTemporaryFederatedCredentials` | one of | `false` | Credentials from STS `GetFederationToken` |
+| `profileName` / `profilesLocation` | no | `""` | AWS profile file or directory |
+| `durationSeconds` | no | `0` | Temporary credential validity (service default when `0`) |
+| `name` / `policy` | federated mode | — | Federation token name and policy |
+| `temporaryCredentialsCacheKey` | no | `<container>/aws` | Process-wide cache key of the temporary credentials |
+| `createContainerIfNotExists` | no | `false` | Create the bucket on first save |
+| `urlExpiry` | no | `3600` | Presigned URL expiry in seconds (*extension*) |
+
+Exactly one credential mode is used, in this order: `useCredentials`, `useTemporaryCredentials`,
+`useTemporaryFederatedCredentials`, static keys. Temporary credentials are cached and refreshed
+shortly before they expire.
+
+### ks3 (Kingsoft Cloud KS3)
+
+KS3 is **not** an S3-compatible store: it authenticates with its own `KSS` signature instead of AWS
+Signature Version 4, so it has a dedicated provider built on the KS3 Java SDK. Leave
+`useAwsSignature` at its default (`false`) unless you talk to an AWS-compatible gateway.
+
+| Parameter | Required | Default | Description |
+|---|---|---|---|
+| `endpoint` | yes | — | Service host, e.g. `ks3-cn-beijing.ksyuncs.com` (a scheme is accepted) |
+| `bucketName` | yes | — | Bucket name |
+| `accessKey` / `secretKey` | yes | — | Credentials |
+| `protocol` | no | `http` | `http` or `https`; an endpoint scheme wins when it is omitted |
+| `userAgent` | no | SDK default | HTTP user agent |
+| `maxConnections` | no | SDK default | Connection pool size |
+| `timeout` | no | SDK default | Connection timeout in milliseconds |
+| `readWriteTimeout` | no | SDK default | Socket read/write timeout in milliseconds |
+| `createContainerIfNotExists` | no | `false` | Create the bucket on first save |
+| `signerVersion` | no | SDK default (`V2`) | `V2`, `V4` or `V4_UNSIGNED_PAYLOAD_SIGNER` (*extension*) |
+| `useAwsSignature` | no | `false` | Use the AWS signature instead of the KS3 one (*extension*) |
+| `urlExpiry` | no | `3600` | Presigned URL expiry in seconds (*extension*) |
 
 ### azure
 
@@ -198,8 +261,9 @@ StorageManager manager = PolystoreBuilder.builder()
 |---|---|---|---|
 | `containerName` | yes | — | Blob container name |
 | `connectionString` | one of — | — | Account connection string |
-| `accountName` + `accountKey` | one of — | — | Or the explicit credential pair |
-| `sasExpiry` | no | `3600` | SAS token validity (seconds) |
+| `accountName` + `accountKey` | one of — | — | Explicit credential pair (*extension*) |
+| `createContainerIfNotExists` | no | `false` | Create the container on first save |
+| `sasExpiry` | no | `3600` | SAS token validity in seconds (*extension*) |
 
 ### aliyun-oss
 
@@ -208,19 +272,27 @@ StorageManager manager = PolystoreBuilder.builder()
 | `endpoint` | yes | — | OSS endpoint, e.g. `oss-cn-hangzhou.aliyuncs.com` |
 | `accessKeyId` / `accessKeySecret` | yes | — | Credentials |
 | `bucketName` | yes | — | Bucket name |
-| `urlExpiry` | no | `3600` | Presigned URL expiry (seconds) |
-| `useInternal` | no | `false` | Rewrite `.aliyuncs.com` endpoints to `-internal` |
+| `regionId` | STS mode | — | Region of the STS call |
+| `useSecurityTokenService` | no | `false` | Use STS `AssumeRole` temporary credentials |
+| `roleArn` / `roleSessionName` | STS mode | — | Role to assume and session name |
+| `durationSeconds` | no | `0` | Temporary credential validity in seconds |
+| `policy` | no | `""` | Extra session policy of the temporary credentials |
+| `temporaryCredentialsCacheKey` | no | `<container>/aliyun` | Process-wide cache key of the temporary credentials |
+| `createContainerIfNotExists` | no | `false` | Create the bucket on first save |
+| `urlExpiry` | no | `3600` | Presigned URL expiry in seconds (*extension*) |
+| `useInternal` | no | `false` | Rewrite `.aliyuncs.com` endpoints to `-internal` (*extension*) |
 
 ### huawei-obs
 
 | Parameter | Required | Default | Description |
 |---|---|---|---|
 | `endpoint` | yes | — | OBS endpoint |
-| `accessKey` / `secretKey` | yes | — | Credentials |
+| `accessKeyId` / `accessKeySecret` | yes | — | Credentials |
 | `bucketName` | yes | — | Bucket name |
-| `urlExpiry` | no | `3600` | Signed URL expiry (seconds) |
+| `createContainerIfNotExists` | no | `false` | Create the bucket on first save |
+| `urlExpiry` | no | `3600` | Signed URL expiry in seconds (*extension*) |
 
-### sftp
+### sftp (Polystore extension — the reference framework has no SFTP provider)
 
 | Parameter | Required | Default | Description |
 |---|---|---|---|

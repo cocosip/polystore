@@ -13,7 +13,7 @@
     {
       "name": "polystore.containers[0].type",
       "type": "java.lang.String",
-      "description": "StorageProvider type identifier (e.g. local, minio, s3); also names the sibling key holding provider-specific parameters, e.g. polystore.containers[0].minio.endpoint."
+      "description": "StorageProvider type identifier (e.g. local, minio, s3, aws); also names the sibling key holding provider-specific parameters, e.g. polystore.containers[0].minio.end-point. Type and section key are matched case- and separator-insensitively."
     },
     {
       "name": "polystore.containers[0].default",

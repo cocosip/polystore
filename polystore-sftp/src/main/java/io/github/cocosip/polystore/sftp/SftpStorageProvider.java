@@ -4,7 +4,6 @@ import io.github.cocosip.polystore.ContainerConfiguration;
 import io.github.cocosip.polystore.DefaultStorageContainer;
 import io.github.cocosip.polystore.StorageContainer;
 import io.github.cocosip.polystore.StorageProvider;
-import io.github.cocosip.polystore.util.ConfigUtils;
 
 /**
  * Storage provider of type {@code sftp}.
@@ -27,30 +26,18 @@ public class SftpStorageProvider implements StorageProvider {
 
     @Override
     public StorageContainer createContainer(ContainerConfiguration config) {
-        var properties = config.getProperties();
-        String host = ConfigUtils.requireString(properties, "host");
-        int port = ConfigUtils.optInt(properties, "port", 22);
-        String username = ConfigUtils.requireString(properties, "username");
-        String password = ConfigUtils.optString(properties, "password", "");
-        String privateKeyPath = ConfigUtils.optString(properties, "privateKeyPath", "");
-        String basePath = ConfigUtils.requireString(properties, "basePath");
-        String urlPrefix = ConfigUtils.optString(properties, "urlPrefix", "");
-        int poolSize = ConfigUtils.optInt(properties, "poolSize", 5);
-        String strictHostKeyChecking = ConfigUtils.optString(properties, "strictHostKeyChecking", "no");
-
-        if (password.isEmpty() && privateKeyPath.isEmpty()) {
-            throw new IllegalStateException("SFTP credentials require either 'password' or 'privateKeyPath'");
-        }
+        SftpStorageConfiguration configuration = SftpStorageConfiguration.from(config);
 
         SftpConnectionPool pool = new SftpConnectionPool(
                 SftpChannelFactory.JSCH,
-                host,
-                port,
-                username,
-                password,
-                privateKeyPath,
-                strictHostKeyChecking,
-                poolSize);
-        return DefaultStorageContainer.from(config, new SftpStorageClient(pool, basePath, urlPrefix));
+                configuration.host(),
+                configuration.port(),
+                configuration.username(),
+                configuration.password(),
+                configuration.privateKeyPath(),
+                configuration.strictHostKeyChecking(),
+                configuration.poolSize());
+        return DefaultStorageContainer.from(
+                config, new SftpStorageClient(pool, configuration.basePath(), configuration.urlPrefix()));
     }
 }

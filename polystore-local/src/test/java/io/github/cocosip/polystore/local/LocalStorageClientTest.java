@@ -24,7 +24,7 @@ class LocalStorageClientTest {
     Path tempDir;
 
     private LocalStorageClient client() {
-        return new LocalStorageClient(tempDir, "", true);
+        return new LocalStorageClient(tempDir, "images", true, "", true);
     }
 
     private static InputStream stream(String text) {
@@ -37,7 +37,7 @@ class LocalStorageClientTest {
 
         client.save("hello.txt", stream("hello world"), SaveArgs.defaults());
 
-        assertThat(Files.readString(tempDir.resolve("hello.txt"))).isEqualTo("hello world");
+        assertThat(Files.readString(tempDir.resolve("images/hello.txt"))).isEqualTo("hello world");
         try (InputStream in = client.get("hello.txt")) {
             assertThat(new String(in.readAllBytes(), StandardCharsets.UTF_8)).isEqualTo("hello world");
         }
@@ -49,7 +49,7 @@ class LocalStorageClientTest {
 
         client.save("2024/01/scan.dcm", stream("dcm"), SaveArgs.defaults());
 
-        assertThat(tempDir.resolve("2024/01/scan.dcm")).exists();
+        assertThat(tempDir.resolve("images/2024/01/scan.dcm")).exists();
         assertThat(client.exists("2024/01/scan.dcm")).isTrue();
     }
 
@@ -59,14 +59,14 @@ class LocalStorageClientTest {
         client.save("a.txt", stream("v1"), SaveArgs.defaults());
 
         client.save("a.txt", stream("v2"), SaveArgs.defaults());
-        assertThat(Files.readString(tempDir.resolve("a.txt"))).isEqualTo("v2");
+        assertThat(Files.readString(tempDir.resolve("images/a.txt"))).isEqualTo("v2");
 
         assertThatThrownBy(() -> client.save(
                         "a.txt",
                         stream("v3"),
                         SaveArgs.builder().overwrite(false).build()))
                 .isInstanceOf(StorageFileAlreadyExistsException.class);
-        assertThat(Files.readString(tempDir.resolve("a.txt"))).isEqualTo("v2");
+        assertThat(Files.readString(tempDir.resolve("images/a.txt"))).isEqualTo("v2");
     }
 
     @Test
@@ -98,37 +98,69 @@ class LocalStorageClientTest {
     }
 
     @Test
-    void getUrlShouldComposePrefixAndFileName() {
-        assertThat(new LocalStorageClient(tempDir, "", true).getUrl("a.txt", UrlArgs.defaults()))
-                .isEqualTo("a.txt");
-        assertThat(new LocalStorageClient(tempDir, "https://cdn.example.com/images", true)
-                        .getUrl("2024/a.txt", UrlArgs.defaults()))
-                .isEqualTo("https://cdn.example.com/images/2024/a.txt");
+    void containerNameShouldBeAppendedOnlyWhenEnabled() {
+        LocalStorageClient appending = new LocalStorageClient(tempDir, "images", true, "", true);
+        appending.save("a.txt", stream("x"), SaveArgs.defaults());
+
+        LocalStorageClient flat = new LocalStorageClient(tempDir, "images", false, "", true);
+        flat.save("a.txt", stream("y"), SaveArgs.defaults());
+
+        assertThat(tempDir.resolve("images/a.txt")).exists();
+        assertThat(tempDir.resolve("a.txt")).exists();
     }
 
     @Test
-    void pathTraversalShouldBeRejected() {
-        LocalStorageClient client = client();
+    void getUrlWithoutHttpServerShouldReturnRelativePath() {
+        LocalStorageClient appending = new LocalStorageClient(tempDir, "images", true, "", true);
+        LocalStorageClient flat = new LocalStorageClient(tempDir, "images", false, "", true);
 
-        assertThatThrownBy(() -> client.save("../escape.txt", stream("x"), SaveArgs.defaults()))
+        assertThat(appending.getUrl("2024/a.txt", UrlArgs.defaults())).isEqualTo("images/2024/a.txt");
+        assertThat(flat.getUrl("2024/a.txt", UrlArgs.defaults())).isEqualTo("2024/a.txt");
+    }
+
+    @Test
+    void getUrlWithHttpServerShouldPrefixRelativePath() {
+        LocalStorageClient withoutSlash =
+                new LocalStorageClient(tempDir, "images", true, "https://cdn.example.com", true);
+        LocalStorageClient withSlash =
+                new LocalStorageClient(tempDir, "images", true, "https://cdn.example.com/", true);
+        LocalStorageClient flat = new LocalStorageClient(tempDir, "images", false, "https://cdn.example.com", true);
+
+        assertThat(withoutSlash.getUrl("2024/a.txt", UrlArgs.defaults()))
+                .isEqualTo("https://cdn.example.com/images/2024/a.txt");
+        assertThat(withSlash.getUrl("2024/a.txt", UrlArgs.defaults()))
+                .isEqualTo("https://cdn.example.com/images/2024/a.txt");
+        assertThat(flat.getUrl("a.txt", UrlArgs.defaults())).isEqualTo("https://cdn.example.com/a.txt");
+    }
+
+    @Test
+    void pathTraversalOutsideBasePathShouldBeRejected() {
+        LocalStorageClient appending = client();
+        LocalStorageClient flat = new LocalStorageClient(tempDir, "images", false, "", true);
+
+        assertThatThrownBy(() -> appending.save("../../escape.txt", stream("x"), SaveArgs.defaults()))
                 .isInstanceOf(StorageOperationException.class)
                 .hasMessageContaining("escapes");
-        assertThatThrownBy(() -> client.get("../escape.txt")).isInstanceOf(StorageOperationException.class);
+        assertThatThrownBy(() -> appending.get("../../escape.txt")).isInstanceOf(StorageOperationException.class);
+        assertThatThrownBy(() -> flat.save("../escape.txt", stream("x"), SaveArgs.defaults()))
+                .isInstanceOf(StorageOperationException.class)
+                .hasMessageContaining("escapes");
+        assertThatThrownBy(() -> flat.exists("../escape.txt")).isInstanceOf(StorageOperationException.class);
     }
 
     @Test
     void missingBaseDirectoryShouldBeCreatedOnlyWhenEnabled() throws Exception {
         Path base = tempDir.resolve("created");
-        new LocalStorageClient(base, "", true);
+        new LocalStorageClient(base, "images", true, "", true);
 
         assertThat(base).exists();
 
         Path lazy = tempDir.resolve("lazy");
-        LocalStorageClient client = new LocalStorageClient(lazy, "", false);
+        LocalStorageClient client = new LocalStorageClient(lazy, "images", true, "", false);
         assertThat(lazy).doesNotExist();
 
         client.save("a.txt", stream("x"), SaveArgs.defaults());
-        assertThat(lazy.resolve("a.txt")).exists();
+        assertThat(lazy.resolve("images/a.txt")).exists();
     }
 
     @Test
@@ -141,12 +173,32 @@ class LocalStorageClientTest {
                 .type("local")
                 .isDefault(true)
                 .property("basePath", tempDir.toString())
-                .property("urlPrefix", "https://cdn.example.com")
+                .property("httpServer", "https://cdn.example.com")
                 .build());
 
         assertThat(container.getName()).isEqualTo("images");
         assertThat(container.getInfo().isDefault()).isTrue();
-        assertThat(container.getUrl("a/b.txt", UrlArgs.defaults())).isEqualTo("https://cdn.example.com/a/b.txt");
+        assertThat(container.getUrl("a/b.txt", UrlArgs.defaults())).isEqualTo("https://cdn.example.com/images/a/b.txt");
+
+        container.save("a/b.txt", stream("x"), SaveArgs.defaults());
+        assertThat(tempDir.resolve("images/a/b.txt")).exists();
+    }
+
+    @Test
+    void providerShouldSupportFlatLayoutWithoutHttpServer() {
+        LocalStorageProvider provider = new LocalStorageProvider();
+
+        var container = provider.createContainer(ContainerConfiguration.builder()
+                .name("images")
+                .type("local")
+                .property("basePath", tempDir.toString())
+                .property("appendContainerNameToBasePath", false)
+                .build());
+
+        container.save("a.txt", stream("x"), SaveArgs.defaults());
+
+        assertThat(tempDir.resolve("a.txt")).exists();
+        assertThat(container.getUrl("a.txt", UrlArgs.defaults())).isEqualTo("a.txt");
     }
 
     @Test

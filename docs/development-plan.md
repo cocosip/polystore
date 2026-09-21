@@ -83,14 +83,16 @@
 
 ### 4.2 polystore-minio ✅
 - [x] `MinioStorageProvider` implementation
-- [x] Optional automatic bucket creation (`createBucketIfAbsent`)
+- [x] Optional automatic bucket creation (`createBucketIfAbsent`, renamed to
+      `createBucketIfNotExists` in Phase 6)
 - [x] Presigned URL generation (computed offline)
 - [x] Unit tests (offline parts: configuration parsing / presign output; Testcontainers
       integration pending a Docker environment)
 
 ### 4.3 polystore-s3 ✅
 - [x] `S3StorageProvider` implementation (AWS SDK v2)
-- [x] S3-compatible endpoint support (pathStyleAccess, applied to client and presigner alike)
+- [x] S3-compatible endpoint support (pathStyleAccess, applied to client and presigner alike;
+      split into the dedicated `s3` provider with `serverUrl`/`forcePathStyle` in Phase 6)
 - [x] Presigned URL generation (computed offline)
 - [x] Unit tests (offline parts: virtual-host / path-style presigning, parameter validation;
       Testcontainers LocalStack pending a Docker environment)
@@ -114,6 +116,54 @@
 - [x] `SftpStorageProvider` implementation
 - [x] JSch connection pool (fixed size, lazily created, borrowed and returned per operation)
 - [x] Unit tests (in-memory fake channel covering lease reuse and file semantics)
+
+---
+
+## Phase 6: Reference Configuration Alignment ✅
+
+- [x] Provider parameter names aligned with the SharpAbp `*FileProviderConfigurationNames` constants
+- [x] Split Amazon from S3-compatible storage: new `polystore-aws` module, `polystore-s3` rewritten
+      as S3-compatible only
+- [x] AWS credential modes (`useCredentials` / `useTemporaryCredentials` /
+      `useTemporaryFederatedCredentials` / static keys) with an STS-backed process-wide cache
+- [x] Alibaba Cloud STS (`useSecurityTokenService` + AssumeRole) with a process-wide cache
+- [x] Lazy `createContainerIfNotExists` / `createBucketIfNotExists` on the first save for every
+      object store (container construction stays network-free)
+- [x] `local` aligned with the reference `FileSystem` provider
+      (`appendContainerNameToBasePath`, `httpServer`)
+- [x] Case- and separator-insensitive provider `type` / section resolution, plus the qualified
+      `{Provider}.{Name}` key form
+- [x] Provider aliases for reference names that differ from the Polystore type ids
+      (`FileSystem` → `local`, `Aliyun` → `aliyun-oss`, `Obs` → `huawei-obs`, `KS3` → `ks3`)
+- [x] New `polystore-ks3` backend using the Kingsoft Cloud KS3 `KSS` signature (KS3 Java SDK),
+      explicitly *not* modelled as an S3-compatible store
+- [x] One configuration record per backend (`<Provider>StorageConfiguration`) parsed by a single
+      `from(ContainerConfiguration)` factory; `ConfigUtils` is confined to those factories, so every
+      provider handles its parameters through the same shape
+- [x] README, architecture and per-provider Javadoc updated; full `clean verify` green
+
+> 2026-09-21: the provider generation had drifted from the reference framework: each backend read
+> its own ad-hoc parameter names (`secure`, `createBucketIfAbsent`, `pathStyleAccess`, `endpoint`,
+> `accessKey`/`secretKey`) and the single `s3` module tried to serve both Amazon and every
+> S3-compatible store. This phase re-aligns every backend with the reference
+> `*FileProviderConfigurationNames` leaves (extensions are marked as such), removes the ambiguity
+> between `Aws` and `S3` by adding a dedicated Amazon-only `polystore-aws` module, and moves
+> bucket/container creation to the first save, exactly like the reference providers do. Breaking
+> the pre-1.0 yml shape was accepted: parameters are `endPoint`/`accessKey`/`secretKey`/`withSSL`/
+> `createBucketIfNotExists` (minio), `serverUrl`/`forcePathStyle`/`useChunkEncoding`/`protocol`/
+> `authenticationRegion`/`createBucketIfNotExists` (s3), `region`/`containerName`/credential modes
+> (aws), `accessKeyId`/`accessKeySecret`/`createContainerIfNotExists` (obs, aliyun, azure) and
+> `basePath`/`appendContainerNameToBasePath`/`httpServer` (local). SharpAbp's `KS3` provider was
+> added as a dedicated backend as well: KS3 does not implement AWS Signature Version 4 but signs
+> with its own `KSS` algorithm, so `polystore-ks3` uses the KS3 Java SDK with
+> `useAwsSignature = false` (SDK default, signer version `V2`) and exposes `signerVersion` /
+> `useAwsSignature` only as documented extensions. Two deliberate divergences:
+> MinIO defaults `region` to `us-east-1` so presigning stays local (the Java SDK would otherwise
+> query the bucket location over the network), and `local` keeps `createDirectories` as an extra
+> extension. `aws`/`s3`/`minio`/`azure`/`aliyun-oss`/`huawei-obs` tests remain deterministic and
+> offline (presigned/SAS/signed URLs, profile-based credential resolution, network-free
+> construction); Testcontainers integration for the object stores is still pending a Docker
+> environment.
 
 ---
 

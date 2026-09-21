@@ -9,8 +9,8 @@
 
   <name>Polystore</name>
   <description>A pluggable file storage abstraction for Java: unified StorageClient API,
-    multiple named containers per process and SPI-based backends (local, MinIO, S3,
-    Azure Blob, Aliyun OSS, Huawei OBS, FastDFS, SFTP).</description>
+    multiple named containers per process and SPI-based backends (local, MinIO, S3-compatible,
+    AWS, KS3, Azure Blob, Aliyun OSS, Huawei OBS, SFTP).</description>
   <url>https://github.com/cocosip/polystore</url>
 
   <licenses>
@@ -35,6 +35,8 @@
     <module>polystore-local</module>
     <module>polystore-minio</module>
     <module>polystore-s3</module>
+    <module>polystore-aws</module>
+    <module>polystore-ks3</module>
     <module>polystore-azure</module>
     <module>polystore-aliyun-oss</module>
     <module>polystore-huawei-obs</module>
@@ -63,6 +65,8 @@
     <maven.compiler.release>21</maven.compiler.release>
 
     <slf4j.version>2.0.17</slf4j.version>
+    <awssdk.version>2.30.18</awssdk.version>
+    <ks3sdk.version>1.9.0</ks3sdk.version>
     <spring-boot.version>3.5.6</spring-boot.version>
     <junit.version>5.13.4</junit.version>
     <assertj.version>3.27.6</assertj.version>
@@ -131,6 +135,26 @@
         <groupId>com.github.spotbugs</groupId>
         <artifactId>spotbugs-annotations</artifactId>
         <version>${spotbugs-annotations.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>software.amazon.awssdk</groupId>
+        <artifactId>s3</artifactId>
+        <version>${awssdk.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>software.amazon.awssdk</groupId>
+        <artifactId>sts</artifactId>
+        <version>${awssdk.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>software.amazon.awssdk</groupId>
+        <artifactId>profiles</artifactId>
+        <version>${awssdk.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.ksyun</groupId>
+        <artifactId>ks3-kss-java-sdk</artifactId>
+        <version>${ks3sdk.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

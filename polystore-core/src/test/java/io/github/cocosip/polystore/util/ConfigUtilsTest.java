@@ -29,6 +29,19 @@ class ConfigUtilsTest {
     }
 
     @Test
+    void getShouldMatchTheReferenceQualifiedKeyStyle() {
+        Map<String, Object> properties = new HashMap<>();
+        properties.put("Minio.EndPoint", "http://minio:9000");
+        properties.put("Aws.UseTemporaryFederatedCredentials", true);
+
+        assertThat(ConfigUtils.get(properties, "endPoint")).isEqualTo("http://minio:9000");
+        assertThat(ConfigUtils.get(properties, "useTemporaryFederatedCredentials"))
+                .isEqualTo(true);
+        assertThat(ConfigUtils.get(properties, "end")).isNull();
+        assertThat(ConfigUtils.requireString(properties, "endPoint")).isEqualTo("http://minio:9000");
+    }
+
+    @Test
     void requireStringShouldReturnTrimmedValue() {
         Map<String, Object> properties = Map.of("endpoint", " http://x:9000 ");
 

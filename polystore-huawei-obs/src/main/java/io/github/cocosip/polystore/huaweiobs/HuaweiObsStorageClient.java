@@ -18,28 +18,37 @@ import java.util.Collection;
  * Huawei Cloud OBS-backed {@link StorageClient}. {@code getUrl} returns a signed GET URL computed
  * locally (no network round trip).
  *
- * <p>{@code save} buffers the stream in memory to set the content length required by the SDK.</p>
+ * <p>{@code save} buffers the stream in memory to set the content length required by the SDK. When
+ * {@code createContainerIfNotExists} is enabled the bucket is created lazily right before the first
+ * upload, exactly like the reference provider.</p>
  */
 public final class HuaweiObsStorageClient implements StorageClient {
+
+    /** Error code reported by OBS when the requested bucket does not exist. */
+    private static final String NO_SUCH_BUCKET = "NoSuchBucket";
 
     private final ObsClient client;
     private final String bucketName;
     private final long urlExpirySeconds;
+    private final boolean createContainerIfNotExists;
 
     /**
      * Creates the client.
      *
-     * @param client           initialized OBS client, never {@code null}
-     * @param bucketName       target bucket, never {@code null}
-     * @param urlExpirySeconds default signed URL expiry in seconds
+     * @param client                     initialized OBS client, never {@code null}
+     * @param bucketName                 target bucket, never {@code null}
+     * @param urlExpirySeconds           default signed URL expiry in seconds
+     * @param createContainerIfNotExists create the bucket before the first upload when it is absent
      */
     @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
             value = "EI_EXPOSE_REP2",
             justification = "wrapping the backend SDK client is the purpose of this class")
-    public HuaweiObsStorageClient(ObsClient client, String bucketName, long urlExpirySeconds) {
+    public HuaweiObsStorageClient(
+            ObsClient client, String bucketName, long urlExpirySeconds, boolean createContainerIfNotExists) {
         this.client = client;
         this.bucketName = bucketName;
         this.urlExpirySeconds = urlExpirySeconds;
+        this.createContainerIfNotExists = createContainerIfNotExists;
     }
 
     @Override
@@ -49,6 +58,9 @@ public final class HuaweiObsStorageClient implements StorageClient {
             content = inputStream.readAllBytes();
         } catch (Exception e) {
             throw new StorageOperationException("Failed to read stream for: " + fileName, e);
+        }
+        if (createContainerIfNotExists) {
+            ensureContainer();
         }
         try {
             ObjectMetadata metadata = new ObjectMetadata();
@@ -111,5 +123,35 @@ public final class HuaweiObsStorageClient implements StorageClient {
     @Override
     public void deleteAll(Collection<String> fileNames) {
         fileNames.forEach(this::delete);
+    }
+
+    /**
+     * Creates the bucket when it is absent; a present bucket is left untouched.
+     *
+     * @throws StorageOperationException if the existence check or the creation fails
+     */
+    private void ensureContainer() {
+        if (!bucketExists()) {
+            createBucket();
+        }
+    }
+
+    private boolean bucketExists() {
+        try {
+            return client.headBucket(bucketName);
+        } catch (ObsException e) {
+            if (e.getResponseCode() == 404 || NO_SUCH_BUCKET.equals(e.getErrorCode())) {
+                return false;
+            }
+            throw new StorageOperationException("Failed to check bucket: " + bucketName, e);
+        }
+    }
+
+    private void createBucket() {
+        try {
+            client.createBucket(bucketName);
+        } catch (ObsException e) {
+            throw new StorageOperationException("Failed to create bucket: " + bucketName, e);
+        }
     }
 }

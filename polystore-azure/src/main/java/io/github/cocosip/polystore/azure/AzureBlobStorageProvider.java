@@ -7,15 +7,30 @@ import io.github.cocosip.polystore.ContainerConfiguration;
 import io.github.cocosip.polystore.DefaultStorageContainer;
 import io.github.cocosip.polystore.StorageContainer;
 import io.github.cocosip.polystore.StorageProvider;
-import io.github.cocosip.polystore.util.ConfigUtils;
 
 /**
- * Storage provider of type {@code azure} (Azure Blob Storage).
+ * Storage provider of type {@code azure} (Azure Blob Storage). Parameter names follow the
+ * reference <i>SharpAbp.Abp.FileStoring.Azure</i> {@code AzureFileProviderConfigurationNames}, so
+ * they are configured in the container's {@code azure} section, e.g.
+ * {@code azure: { connectionString: ..., containerName: ... }}.
  *
- * <p>Parameters: {@code containerName} (required); credentials are either a
- * {@code connectionString} or an {@code accountName} + {@code accountKey} pair; plus
- * {@code sasExpiry} (default 3600 seconds, SAS token validity for {@code getUrl}). SAS
- * generation requires the account key, so a connection string without a key cannot sign URLs.</p>
+ * <p>Provider parameters:</p>
+ * <ul>
+ *   <li>{@code connectionString} — full service connection string; required unless the
+ *       {@code accountName} + {@code accountKey} extension pair is supplied</li>
+ *   <li>{@code containerName} (required) — target blob container</li>
+ *   <li>{@code createContainerIfNotExists} (default {@code false}) — create the container lazily,
+ *       right before the first upload, exactly like the reference provider; container construction
+ *       never touches the network</li>
+ *   <li>{@code accountName} + {@code accountKey} (Polystore extension) — credential pair used when
+ *       no {@code connectionString} is given; the endpoint is derived as
+ *       {@code https://<accountName>.blob.core.windows.net}</li>
+ *   <li>{@code sasExpiry} (default {@code 3600}, Polystore extension) — SAS token validity in
+ *       seconds for {@code getUrl}</li>
+ * </ul>
+ *
+ * <p>SAS generation requires the account key, so a connection string without a key cannot sign
+ * URLs.</p>
  */
 public class AzureBlobStorageProvider implements StorageProvider {
 
@@ -29,25 +44,22 @@ public class AzureBlobStorageProvider implements StorageProvider {
 
     @Override
     public StorageContainer createContainer(ContainerConfiguration config) {
-        var properties = config.getProperties();
-        String connectionString = ConfigUtils.optString(properties, "connectionString", "");
-        String accountName = ConfigUtils.optString(properties, "accountName", "");
-        String accountKey = ConfigUtils.optString(properties, "accountKey", "");
-        String containerName = ConfigUtils.requireString(properties, "containerName");
-        long sasExpiry = ConfigUtils.optLong(properties, "sasExpiry", 3600);
+        AzureBlobStorageConfiguration configuration = AzureBlobStorageConfiguration.from(config);
 
         var builder = new BlobServiceClientBuilder();
-        if (!connectionString.isEmpty()) {
-            builder.connectionString(connectionString);
-        } else if (!accountName.isEmpty() && !accountKey.isEmpty()) {
-            builder.endpoint("https://" + accountName + ".blob.core.windows.net")
-                    .credential(new StorageSharedKeyCredential(accountName, accountKey));
+        if (!configuration.connectionString().isEmpty()) {
+            builder.connectionString(configuration.connectionString());
         } else {
-            throw new IllegalStateException("Azure credentials require either 'connectionString' or the 'accountName'"
-                    + " + 'accountKey' pair");
+            builder.endpoint("https://" + configuration.accountName() + ".blob.core.windows.net")
+                    .credential(
+                            new StorageSharedKeyCredential(configuration.accountName(), configuration.accountKey()));
         }
 
-        BlobContainerClient containerClient = builder.buildClient().getBlobContainerClient(containerName);
-        return DefaultStorageContainer.from(config, new AzureBlobStorageClient(containerClient, sasExpiry));
+        BlobContainerClient containerClient =
+                builder.buildClient().getBlobContainerClient(configuration.containerName());
+        return DefaultStorageContainer.from(
+                config,
+                new AzureBlobStorageClient(
+                        containerClient, configuration.sasExpirySeconds(), configuration.createContainerIfNotExists()));
     }
 }

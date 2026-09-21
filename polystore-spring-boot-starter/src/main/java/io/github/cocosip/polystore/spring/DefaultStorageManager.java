@@ -13,6 +13,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -25,6 +26,10 @@ import java.util.Map;
  *       {@code TenantIsolationMode.PATH_PREFIX}</li>
  *   <li>{@link EventPublishingContainer} when an event publisher is present</li>
  * </ol>
+ *
+ * <p>Providers are matched to configurations case-insensitively, because SharpAbp provider names
+ * are PascalCase ({@code Minio}, {@code S3}, {@code Aws}, {@code Azure}) while a provider
+ * implementation may register a lowercase type.</p>
  */
 public final class DefaultStorageManager implements StorageManager {
 
@@ -36,7 +41,7 @@ public final class DefaultStorageManager implements StorageManager {
      *
      * @param configurations   container definitions, never {@code null}
      * @param providers        registered providers, looked up by
-     *                         {@link StorageProvider#getType()}, never {@code null}
+     *                         {@link StorageProvider#getType()} ignoring case, never {@code null}
      * @param tenantIdSupplier tenant id source for PATH_PREFIX containers, may be {@code null}
      * @param eventPublisher   event sink, may be {@code null} to disable event publishing
      * @throws IllegalStateException             on duplicate container names or more than one
@@ -51,7 +56,13 @@ public final class DefaultStorageManager implements StorageManager {
             StorageEventPublisher eventPublisher) {
         Map<String, StorageProvider> providersByType = new LinkedHashMap<>();
         for (StorageProvider provider : providers) {
-            providersByType.put(provider.getType(), provider);
+            providersByType.put(normalizedType(provider.getType()), provider);
+        }
+        // aliases never shadow a canonical type, whatever the registration order is
+        for (StorageProvider provider : providers) {
+            for (String alias : provider.getAliases()) {
+                providersByType.putIfAbsent(normalizedType(alias), provider);
+            }
         }
 
         Map<String, StorageContainer> created = new LinkedHashMap<>();
@@ -61,7 +72,7 @@ public final class DefaultStorageManager implements StorageManager {
             if (created.containsKey(configuration.getName())) {
                 throw new IllegalStateException("Duplicate container name: " + configuration.getName());
             }
-            StorageProvider provider = providersByType.get(configuration.getType());
+            StorageProvider provider = providersByType.get(normalizedType(configuration.getType()));
             if (provider == null) {
                 throw new StorageProviderNotFoundException(configuration.getType());
             }
@@ -77,6 +88,10 @@ public final class DefaultStorageManager implements StorageManager {
         }
         this.containers = Collections.unmodifiableMap(created);
         this.defaultContainerName = defaultName;
+    }
+
+    private static String normalizedType(String type) {
+        return type == null ? "" : type.toLowerCase(Locale.ROOT);
     }
 
     private static StorageContainer wrap(

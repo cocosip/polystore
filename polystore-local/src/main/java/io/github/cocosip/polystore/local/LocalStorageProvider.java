@@ -5,15 +5,23 @@ import io.github.cocosip.polystore.DefaultStorageContainer;
 import io.github.cocosip.polystore.StorageClient;
 import io.github.cocosip.polystore.StorageContainer;
 import io.github.cocosip.polystore.StorageProvider;
-import io.github.cocosip.polystore.util.ConfigUtils;
 import java.nio.file.Paths;
+import java.util.Collection;
+import java.util.List;
 
 /**
- * Storage provider of type {@code local}: stores files on the local filesystem.
+ * Storage provider of type {@code local}: stores files on the local filesystem, mirroring SharpAbp's
+ * {@code FileSystem} provider.
  *
- * <p>Parameters: {@code basePath} (required, storage root), {@code urlPrefix} (default empty,
- * HTTP static-resource prefix returned by {@code getUrl}) and {@code createDirectories}
- * (default {@code true}, create missing directories on save).</p>
+ * <p>Parameters:</p>
+ * <ul>
+ *   <li>{@code basePath} (required, storage root directory)</li>
+ *   <li>{@code appendContainerNameToBasePath} (default {@code true}, store files under a
+ *       {@code containerName} sub-directory)</li>
+ *   <li>{@code httpServer} (default empty, HTTP static-resource server prefixed to the URL returned
+ *       by {@code getUrl})</li>
+ *   <li>{@code createDirectories} (default {@code true}, create the missing base directory)</li>
+ * </ul>
  */
 public class LocalStorageProvider implements StorageProvider {
 
@@ -26,14 +34,20 @@ public class LocalStorageProvider implements StorageProvider {
     }
 
     @Override
-    public StorageContainer createContainer(ContainerConfiguration config) {
-        var properties = config.getProperties();
-        String basePath = ConfigUtils.requireString(properties, "basePath");
-        String urlPrefix = ConfigUtils.optString(properties, "urlPrefix", "");
-        boolean createDirectories = ConfigUtils.optBoolean(properties, "createDirectories", true);
+    public Collection<String> getAliases() {
+        return List.of("FileSystem");
+    }
 
-        StorageClient client =
-                new LocalStorageClient(Paths.get(basePath).toAbsolutePath().normalize(), urlPrefix, createDirectories);
+    @Override
+    public StorageContainer createContainer(ContainerConfiguration config) {
+        LocalStorageConfiguration configuration = LocalStorageConfiguration.from(config);
+
+        StorageClient client = new LocalStorageClient(
+                Paths.get(configuration.basePath()).toAbsolutePath().normalize(),
+                config.getName(),
+                configuration.appendContainerNameToBasePath(),
+                configuration.httpServer(),
+                configuration.createDirectories());
         return DefaultStorageContainer.from(config, client);
     }
 }

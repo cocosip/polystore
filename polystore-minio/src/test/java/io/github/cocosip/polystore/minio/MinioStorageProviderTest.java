@@ -5,23 +5,27 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
 import io.github.cocosip.polystore.StorageContainer;
+import java.util.HashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class MinioStorageProviderTest {
 
-    private static ContainerConfiguration config(Map<String, Object> properties) {
-        ContainerConfiguration.Builder builder =
-                ContainerConfiguration.builder().name("dicom").type("minio").properties(properties);
-        return builder.build();
-    }
-
     private static final Map<String, Object> FULL = Map.of(
-            "endpoint", "http://minio.internal:9000",
-            "access-key", "admin",
+            "endPoint", "minio.internal:9000",
+            "accessKey", "admin",
             "secretKey", "secret",
             "bucketName", "dicom",
             "region", "us-east-1");
+
+    private static StorageContainer container(Map<String, Object> properties) {
+        return new MinioStorageProvider()
+                .createContainer(ContainerConfiguration.builder()
+                        .name("dicom")
+                        .type("minio")
+                        .properties(properties)
+                        .build());
+    }
 
     @Test
     void providerTypeShouldBeMinio() {
@@ -29,8 +33,8 @@ class MinioStorageProviderTest {
     }
 
     @Test
-    void shouldBuildContainerFromConfiguration() {
-        StorageContainer container = new MinioStorageProvider().createContainer(config(FULL));
+    void shouldBuildContainerFromSharpAbpConfiguration() {
+        StorageContainer container = container(FULL);
 
         assertThat(container.getName()).isEqualTo("dicom");
         assertThat(container.getProviderType()).isEqualTo("minio");
@@ -39,9 +43,7 @@ class MinioStorageProviderTest {
 
     @Test
     void presignedUrlShouldBeComputedOffline() {
-        StorageContainer container = new MinioStorageProvider().createContainer(config(FULL));
-
-        String url = container.getUrl("2024/scan.dcm");
+        String url = container(FULL).getUrl("2024/scan.dcm");
 
         assertThat(url).startsWith("http://minio.internal:9000/dicom/2024/scan.dcm");
         assertThat(url).contains("X-Amz-Signature=");
@@ -50,85 +52,80 @@ class MinioStorageProviderTest {
 
     @Test
     void urlExpiryParameterShouldControlPresignExpiry() {
-        StorageContainer container = new MinioStorageProvider()
-                .createContainer(config(Map.of(
-                        "endpoint",
-                        "http://minio.internal:9000",
-                        "accessKey",
-                        "admin",
-                        "secret-key",
-                        "secret",
-                        "bucket-name",
-                        "dicom",
-                        "region",
-                        "us-east-1",
-                        "urlExpiry",
-                        60)));
+        Map<String, Object> properties = new HashMap<>(FULL);
+        properties.put("urlExpiry", 60);
 
-        assertThat(container.getUrl("a.txt")).contains("X-Amz-Expires=60");
+        assertThat(container(properties).getUrl("a.txt")).contains("X-Amz-Expires=60");
     }
 
     @Test
-    void secureShouldForceHttpsWhenEndpointHasNoScheme() {
-        StorageContainer container = new MinioStorageProvider()
-                .createContainer(config(Map.of(
-                        "endpoint",
-                        "minio.internal:9000",
-                        "secure",
-                        true,
-                        "accessKey",
-                        "admin",
-                        "secretKey",
-                        "secret",
-                        "bucketName",
-                        "dicom",
-                        "region",
-                        "us-east-1")));
+    void withSslShouldForceHttps() {
+        Map<String, Object> properties = new HashMap<>(FULL);
+        properties.put("withSSL", true);
 
-        assertThat(container.getUrl("a.txt")).startsWith("https://minio.internal:9000/");
+        assertThat(container(properties).getUrl("a.txt")).startsWith("https://minio.internal:9000/");
+    }
+
+    @Test
+    void httpShouldBeTheDefaultProtocol() {
+        assertThat(container(FULL).getUrl("a.txt")).startsWith("http://minio.internal:9000/");
+    }
+
+    @Test
+    void endPointSchemeShouldWinOverWithSsl() {
+        Map<String, Object> properties = new HashMap<>(FULL);
+        properties.put("endPoint", "https://minio.internal:9000");
+        properties.put("withSSL", false);
+
+        assertThat(container(properties).getUrl("a.txt")).startsWith("https://minio.internal:9000/");
     }
 
     @Test
     void missingRequiredParametersShouldBeRejected() {
         MinioStorageProvider provider = new MinioStorageProvider();
 
-        assertThatThrownBy(() ->
-                        provider.createContainer(config(Map.of("accessKey", "a", "secretKey", "s", "bucketName", "b"))))
+        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+                        .name("c")
+                        .type("minio")
+                        .properties(Map.of("accessKey", "a", "secretKey", "s", "bucketName", "b"))
+                        .build()))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("endpoint");
-        assertThatThrownBy(() -> provider.createContainer(
-                        config(Map.of("endpoint", "http://x", "secretKey", "s", "bucketName", "b"))))
+                .hasMessageContaining("endPoint");
+        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+                        .name("c")
+                        .type("minio")
+                        .properties(Map.of("endPoint", "http://x", "secretKey", "s", "bucketName", "b"))
+                        .build()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("accessKey");
-        assertThatThrownBy(() -> provider.createContainer(
-                        config(Map.of("endpoint", "http://x", "accessKey", "a", "secretKey", "s"))))
+        assertThatThrownBy(() -> provider.createContainer(ContainerConfiguration.builder()
+                        .name("c")
+                        .type("minio")
+                        .properties(Map.of("endPoint", "http://x", "accessKey", "a", "secretKey", "s"))
+                        .build()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("bucketName");
     }
 
     @Test
-    void createBucketIfAbsentShouldBeOptIn() {
-        // default: no network call at container creation; container builds fine for an
-        // unreachable endpoint
-        StorageContainer container = new MinioStorageProvider()
-                .createContainer(config(Map.of(
-                        "endpoint", "http://127.0.0.1:1", "accessKey", "a", "secretKey", "s", "bucketName", "b")));
+    void createBucketIfNotExistsShouldNotTouchTheNetworkAtConstruction() {
+        Map<String, Object> properties = new HashMap<>(FULL);
+        properties.put("endPoint", "127.0.0.1:1");
+        properties.put("createBucketIfNotExists", true);
 
-        assertThat(container.getProviderType()).isEqualTo("minio");
+        // the bucket is created lazily on save, so an unreachable endpoint must not fail here
+        assertThat(container(properties).getProviderType()).isEqualTo("minio");
+    }
 
-        // opt-in: initialization attempts the network and fails fast
-        assertThatThrownBy(() -> new MinioStorageProvider()
-                        .createContainer(config(Map.of(
-                                "endpoint",
-                                "http://127.0.0.1:1",
-                                "accessKey",
-                                "a",
-                                "secretKey",
-                                "s",
-                                "bucketName",
-                                "b",
-                                "createBucketIfAbsent",
-                                true))))
-                .isInstanceOf(RuntimeException.class);
+    @Test
+    void sharpAbpQualifiedKeysShouldBeAccepted() {
+        StorageContainer container = container(Map.of(
+                "Minio.EndPoint", "minio.internal:9000",
+                "Minio.AccessKey", "admin",
+                "Minio.SecretKey", "secret",
+                "Minio.BucketName", "dicom",
+                "Minio.WithSSL", true));
+
+        assertThat(container.getUrl("a.txt")).startsWith("https://minio.internal:9000/dicom/a.txt");
     }
 }

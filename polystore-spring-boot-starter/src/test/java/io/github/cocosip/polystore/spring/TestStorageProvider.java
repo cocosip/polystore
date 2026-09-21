@@ -4,6 +4,8 @@ import io.github.cocosip.polystore.ContainerConfiguration;
 import io.github.cocosip.polystore.DefaultStorageContainer;
 import io.github.cocosip.polystore.StorageContainer;
 import io.github.cocosip.polystore.StorageProvider;
+import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -11,10 +13,42 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class TestStorageProvider implements StorageProvider {
 
     private final Map<String, InMemoryStorageClient> clients = new ConcurrentHashMap<>();
+    private final String type;
+    private final List<String> aliases;
+
+    /** Creates a provider of type {@code test}. */
+    public TestStorageProvider() {
+        this("test");
+    }
+
+    /**
+     * Creates a provider with an explicit type identifier.
+     *
+     * @param type provider type identifier
+     */
+    public TestStorageProvider(String type) {
+        this(type, List.of());
+    }
+
+    /**
+     * Creates a provider with an explicit type identifier and alias identifiers.
+     *
+     * @param type    provider type identifier
+     * @param aliases additional type identifiers the provider answers to
+     */
+    public TestStorageProvider(String type, List<String> aliases) {
+        this.type = type;
+        this.aliases = List.copyOf(aliases);
+    }
 
     @Override
     public String getType() {
-        return "test";
+        return type;
+    }
+
+    @Override
+    public Collection<String> getAliases() {
+        return aliases;
     }
 
     @Override

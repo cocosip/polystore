@@ -19,28 +19,40 @@ import java.util.Collection;
 /**
  * Azure Blob-backed {@link StorageClient}. {@code getUrl} appends a read-only SAS token with the
  * container's {@code sasExpiry} validity, unless the caller overrides {@code UrlArgs.expiry}.
+ *
+ * <p>When {@code createContainerIfNotExists} is enabled the container is created lazily, right
+ * before the first upload, exactly like the reference provider: the flag never affects container
+ * construction.</p>
  */
 public final class AzureBlobStorageClient implements StorageClient {
 
     private final BlobContainerClient containerClient;
     private final long sasExpirySeconds;
+    private final boolean createContainerIfNotExists;
 
     /**
      * Creates the client.
      *
-     * @param containerClient  initialized container client, never {@code null}
-     * @param sasExpirySeconds default SAS token validity in seconds
+     * @param containerClient            initialized container client, never {@code null}
+     * @param sasExpirySeconds           default SAS token validity in seconds
+     * @param createContainerIfNotExists create the blob container before the first upload when it
+     *                                   is absent
      */
     @edu.umd.cs.findbugs.annotations.SuppressFBWarnings(
             value = "EI_EXPOSE_REP2",
             justification = "wrapping the backend SDK client is the purpose of this class")
-    public AzureBlobStorageClient(BlobContainerClient containerClient, long sasExpirySeconds) {
+    public AzureBlobStorageClient(
+            BlobContainerClient containerClient, long sasExpirySeconds, boolean createContainerIfNotExists) {
         this.containerClient = containerClient;
         this.sasExpirySeconds = sasExpirySeconds;
+        this.createContainerIfNotExists = createContainerIfNotExists;
     }
 
     @Override
     public void save(String fileName, InputStream inputStream, SaveArgs args) {
+        if (createContainerIfNotExists) {
+            ensureContainer();
+        }
         try {
             BlobClient blob = containerClient.getBlobClient(fileName);
             BlobParallelUploadOptions options = new BlobParallelUploadOptions(inputStream);
@@ -110,5 +122,21 @@ public final class AzureBlobStorageClient implements StorageClient {
     @Override
     public void deleteAll(Collection<String> fileNames) {
         fileNames.forEach(this::delete);
+    }
+
+    /**
+     * Creates the blob container when it is absent; a present container is left untouched.
+     *
+     * @throws StorageOperationException if the existence check or the creation fails
+     */
+    private void ensureContainer() {
+        try {
+            if (!containerClient.exists()) {
+                containerClient.create();
+            }
+        } catch (Exception e) {
+            throw new StorageOperationException(
+                    "Failed to create container: " + containerClient.getBlobContainerName(), e);
+        }
     }
 }

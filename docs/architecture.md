@@ -33,13 +33,13 @@
 │   getContainer(name) → StorageContainer                 │
 └──────────────────────────┬──────────────────────────────┘
                            │
-          ┌────────────────┼────────────────┐
-          ▼                ▼                ▼
-   StorageContainer  StorageContainer  StorageContainer
-    (local/images)   (minio/dicom)    (s3/backup)
-          │                │                │
-          ▼                ▼                ▼
-   LocalProvider     MinioProvider      S3Provider
+          ┌────────────────┬────────────────┬────────────────┐
+          ▼                ▼                ▼                ▼
+   StorageContainer  StorageContainer  StorageContainer  StorageContainer
+    (local/images)   (minio/dicom)    (s3/backup)      (aws/archive)
+          │                │                │                │
+          ▼                ▼                ▼                ▼
+   LocalProvider    MinioProvider     S3Provider       AwsProvider
 ```
 
 ### Core Flow
@@ -59,9 +59,11 @@ polystore/
 ├── polystore-core                    # core interfaces and abstractions, no Spring dependency
 ├── polystore-spring-boot-starter     # Spring Boot starter (manager assembly, auto-config, events)
 │
-├── polystore-local                   # local filesystem backend
+├── polystore-local                   # local filesystem backend (reference: FileSystem)
 ├── polystore-minio                   # MinIO backend (MinIO Java SDK)
-├── polystore-s3                      # AWS S3 / S3-compatible backend (AWS SDK v2)
+├── polystore-s3                      # S3-compatible stores, never Amazon itself (AWS SDK v2)
+├── polystore-aws                     # Amazon Web Services S3 only (AWS SDK v2)
+├── polystore-ks3                     # Kingsoft Cloud KS3 (KS3 Java SDK, native KSS signature)
 ├── polystore-azure                   # Azure Blob Storage backend
 ├── polystore-aliyun-oss              # Alibaba Cloud OSS backend
 ├── polystore-huawei-obs              # Huawei Cloud OBS backend
@@ -190,60 +192,139 @@ public class ContainerInfo {
 
 ## 5. Backend Design
 
-### 5.1 Local (local filesystem)
+Parameter names are taken from the reference `SharpAbp.Abp.FileStoring.{Provider}`
+`*FileProviderConfigurationNames` constants, so a configuration migrated from the C# framework keeps
+its parameter names. Lookups are case- and separator-insensitive, and the qualified
+`{Provider}.{Name}` form is accepted as well: `Minio.EndPoint`, `minio.end-point` and `endPoint`
+all resolve to the same parameter. Parameters without a reference counterpart are marked as
+Polystore extensions.
+
+**Implementation convention.** Every backend owns exactly one immutable, package-private
+configuration record — the provider class name with `Provider` replaced by `Configuration`
+(`MinioStorageProvider` → `MinioStorageConfiguration`, `S3StorageProvider` →
+`S3StorageConfiguration`) — which parses `ContainerConfiguration#getProperties()` in its
+`static <Name> from(ContainerConfiguration config)` factory, applies the documented defaults and
+validates the required values. Providers, storage clients and SDK factories never read the raw
+parameter map, so parameter handling is identical in shape for every backend. SDK client assembly
+that carries real logic (AWS credentials/STS, Aliyun STS, the KS3 signer configuration) lives in a
+package-private `XxxFactory` that consumes the configuration record.
+
+Object storage providers separate *Amazon* from *S3-compatible* stores, mirroring the reference
+`Aws` and `S3` providers: `aws` never overrides the endpoint and targets AWS regions, while `s3`
+always talks to the configured `serverUrl`. `createContainerIfNotExists` /
+`createBucketIfNotExists` is honoured **lazily on the first save** (as in the reference), never at
+container construction, so building a container stays network-free.
+
+A provider may also declare **aliases** (`StorageProvider#getAliases()`) so a configuration written
+against another naming scheme keeps working: `local` answers to `FileSystem`, `aliyun-oss` to
+`Aliyun`, `huawei-obs` to `Obs` and `ks3` to `KS3`. Types and aliases are matched
+case-insensitively, and a canonical type always wins over another provider's alias.
+
+KS3 is deliberately **not** modelled as an S3-compatible store: Kingsoft Cloud KS3 authenticates
+with its own `KSS` signature rather than AWS Signature Version 4, so it has a dedicated provider
+built on the KS3 Java SDK (the SDK keeps `useAwsSignature = false` and signs with `Ks3V2Signer` by
+default).
+
+### 5.1 Local (local filesystem, reference: FileSystem)
 
 | Parameter | Description | Default |
 |------|------|--------|
 | `basePath` | Storage root directory | required |
-| `urlPrefix` | URL prefix (HTTP static-resource address) | `""` |
-| `createDirectories` | Create missing subdirectories on save | `true` |
+| `appendContainerNameToBasePath` | Store under `{basePath}/{containerName}` | `true` |
+| `httpServer` | URL prefix (HTTP static-resource address) | `""` |
+| `createDirectories` | Create missing subdirectories on save (extension) | `true` |
 
-- `getUrl` returns `urlPrefix + "/" + fileName`; nothing is presigned.
+- `getUrl` returns `httpServer` + the stored relative path; nothing is presigned.
 - Suitable for development environments and intranets without object storage.
 
 ### 5.2 MinIO
 
 | Parameter | Description | Default |
 |------|------|--------|
-| `endpoint` | MinIO service address | required |
+| `endPoint` | MinIO service address (scheme optional) | required |
 | `accessKey` | Access Key | required |
 | `secretKey` | Secret Key | required |
 | `bucketName` | Bucket name | required |
-| `region` | Region | `""` |
-| `secure` | Use HTTPS | `false` |
-| `urlExpiry` | Presigned URL expiry (seconds) | `3600` |
+| `withSSL` | Use HTTPS when the endpoint carries no scheme | `false` |
+| `createBucketIfNotExists` | Create the bucket on the first save | `false` |
+| `region` | Signing region (extension) | `us-east-1` |
+| `urlExpiry` | Presigned URL expiry (seconds, extension) | `3600` |
 
 - Built on the `io.minio:minio` SDK.
-- Optionally creates the bucket when absent (`createBucketIfAbsent: true`).
+- Setting `region` keeps `getUrl` fully local; without it the SDK would query the bucket location.
 
-### 5.3 AWS S3 / S3-compatible
+### 5.3 S3-compatible stores
 
 | Parameter | Description | Default |
 |------|------|--------|
-| `endpoint` | Service endpoint (empty → AWS official) | `""` |
-| `region` | Region | required |
+| `serverUrl` | Service URL (Ceph, KS3, MinIO, R2, ...) | required |
 | `accessKeyId` | Access Key ID | required |
 | `secretAccessKey` | Secret Access Key | required |
 | `bucketName` | Bucket name | required |
-| `pathStyleAccess` | Force path-style addressing (Ceph compatibility) | `false` |
-| `urlExpiry` | Presigned URL expiry (seconds) | `3600` |
+| `forcePathStyle` | Force path-style addressing | `false` |
+| `useChunkEncoding` | AWS chunked payload signing | `false` |
+| `protocol` | `1` = HTTP, `2` = HTTPS (used when `serverUrl` has no scheme) | `1` |
+| `authenticationRegion` | Region used for AWS Signature Version 4 | `us-east-1` |
+| `createBucketIfNotExists` | Create the bucket on the first save | `false` |
+| `urlExpiry` | Presigned URL expiry (seconds, extension) | `3600` |
 
-- Built on AWS SDK for Java v2 (`software.amazon.awssdk`).
-- The `endpoint` override targets KS3, Ceph, Scaleway and other S3-compatible stores.
+- Built on AWS SDK for Java v2 (`software.amazon.awssdk`), always with an endpoint override.
 
-### 5.4 Azure Blob Storage
+### 5.4 AWS (Amazon Web Services only)
+
+| Parameter | Description | Default |
+|------|------|--------|
+| `region` | AWS region | required |
+| `containerName` | Bucket name | required |
+| `accessKeyId` / `secretAccessKey` | Static credentials | one credential mode |
+| `useCredentials` | Use `profileName` or the AWS default provider chain | `false` |
+| `useTemporaryCredentials` | Session credentials from STS `GetSessionToken` | `false` |
+| `useTemporaryFederatedCredentials` | Credentials from STS `GetFederationToken` | `false` |
+| `profileName` / `profilesLocation` | AWS profile selection | `""` |
+| `durationSeconds` | Temporary credential validity | service default |
+| `name` / `policy` | Federation token name and policy | required in federated mode |
+| `temporaryCredentialsCacheKey` | Process-wide cache key of temporary credentials | `<container>/aws` |
+| `createContainerIfNotExists` | Create the bucket on the first save | `false` |
+| `urlExpiry` | Presigned URL expiry (seconds, extension) | `3600` |
+
+- The credential mode is selected in the reference order: `useCredentials`,
+  `useTemporaryCredentials`, `useTemporaryFederatedCredentials`, then static keys.
+- Temporary credentials are cached process-wide and refreshed shortly before expiry.
+
+### 5.5 KS3 (Kingsoft Cloud)
+
+| Parameter | Description | Default |
+|------|------|--------|
+| `endpoint` | KS3 service host, e.g. `ks3-cn-beijing.ksyuncs.com` (scheme optional) | required |
+| `bucketName` | Bucket name | required |
+| `accessKey` / `secretKey` | Credentials | required |
+| `protocol` | `http` or `https` (an endpoint scheme wins when omitted) | `http` |
+| `userAgent` | HTTP user agent | SDK default |
+| `maxConnections` | Connection pool size | SDK default |
+| `timeout` | Connection timeout (milliseconds) | SDK default |
+| `readWriteTimeout` | Socket read/write timeout (milliseconds) | SDK default |
+| `createContainerIfNotExists` | Create the bucket on the first save | `false` |
+| `signerVersion` | KS3 signer `V2`, `V4` or `V4_UNSIGNED_PAYLOAD_SIGNER` (extension) | `V2` |
+| `useAwsSignature` | Use the AWS signature instead of the KS3 native one (extension) | `false` |
+| `urlExpiry` | Presigned URL expiry (seconds, extension) | `3600` |
+
+- Built on `com.ksyun:ks3-kss-java-sdk`; requests are signed with the KS3 native `KSS` signature,
+  which is not AWS Signature Version 4. `useAwsSignature` exists only for AWS-compatible gateways.
+
+### 5.6 Azure Blob Storage
 
 | Parameter | Description | Default |
 |------|------|--------|
 | `connectionString` | Storage account connection string | one of the two credential forms |
-| `accountName` | Storage account name | — |
-| `accountKey` | Storage account key | — |
+| `accountName` | Storage account name (extension) | — |
+| `accountKey` | Storage account key (extension) | — |
 | `containerName` | Container name | required |
-| `sasExpiry` | SAS token expiry (seconds) | `3600` |
+| `createContainerIfNotExists` | Create the container on the first save | `false` |
+| `sasExpiry` | SAS token expiry (seconds, extension) | `3600` |
 
 - Built on `com.azure:azure-storage-blob`.
 
-### 5.5 Alibaba Cloud OSS
+### 5.7 Alibaba Cloud OSS
 
 | Parameter | Description | Default |
 |------|------|--------|
@@ -251,24 +332,32 @@ public class ContainerInfo {
 | `accessKeyId` | Access Key ID | required |
 | `accessKeySecret` | Access Key Secret | required |
 | `bucketName` | Bucket name | required |
-| `urlExpiry` | Presigned URL expiry (seconds) | `3600` |
-| `useInternal` | Rewrite the endpoint to the intranet variant | `false` |
+| `regionId` | Region of the STS call | required in STS mode |
+| `useSecurityTokenService` | Use STS `AssumeRole` temporary credentials | `false` |
+| `roleArn` / `roleSessionName` | Role to assume and session name | required in STS mode |
+| `durationSeconds` | Temporary credential validity (seconds) | service default |
+| `policy` | Extra session policy | `""` |
+| `temporaryCredentialsCacheKey` | Process-wide cache key of temporary credentials | `<container>/aliyun` |
+| `createContainerIfNotExists` | Create the bucket on the first save | `false` |
+| `urlExpiry` | Presigned URL expiry (seconds, extension) | `3600` |
+| `useInternal` | Rewrite the endpoint to the intranet variant (extension) | `false` |
 
-- Built on `com.aliyun.oss:aliyun-sdk-oss`.
+- Built on `com.aliyun.oss:aliyun-sdk-oss`; STS uses `com.aliyun:aliyun-java-sdk-core`.
 
-### 5.6 Huawei Cloud OBS
+### 5.8 Huawei Cloud OBS
 
 | Parameter | Description | Default |
 |------|------|--------|
 | `endpoint` | OBS endpoint | required |
-| `accessKey` | Access Key | required |
-| `secretKey` | Secret Key | required |
+| `accessKeyId` | Access Key ID | required |
+| `accessKeySecret` | Access Key Secret | required |
 | `bucketName` | Bucket name | required |
-| `urlExpiry` | Signed URL expiry (seconds) | `3600` |
+| `createContainerIfNotExists` | Create the bucket on the first save | `false` |
+| `urlExpiry` | Signed URL expiry (seconds, extension) | `3600` |
 
 - Built on `com.huaweicloud:esdk-obs-java`.
 
-### 5.7 FastDFS (not implemented)
+### 5.9 FastDFS (not implemented)
 
 - The only maintained third-party driver, `com.github.tobato:fastdfs-client`, wires its internals
   via Spring field injection and cannot be assembled cleanly without Spring; additionally the
@@ -277,7 +366,7 @@ public class ContainerInfo {
   usable third-party driver", this backend is deferred until a suitable driver appears or a
   Spring-coupled approach is accepted.
 
-### 5.8 SFTP
+### 5.10 SFTP
 
 | Parameter | Description | Default |
 |------|------|--------|
@@ -385,7 +474,7 @@ polystore:
       type: minio
       tenant-isolation: PATH_PREFIX   # enable path isolation
       minio:
-        endpoint: http://minio.internal:9000
+        end-point: minio.internal:9000
         access-key: admin
         secret-key: password
         bucket-name: dicom
@@ -395,7 +484,8 @@ polystore:
       tenant-isolation: NONE          # shared assets, no isolation (default, may be omitted)
       local:
         base-path: /data/public
-        url-prefix: https://cdn.example.com
+        append-container-name-to-base-path: false
+        http-server: https://cdn.example.com
 ```
 
 ---
@@ -409,25 +499,35 @@ polystore:
       type: local
       default: true
       local:
-        base-path: /data/files/images
-        url-prefix: https://cdn.example.com/images
+        base-path: /data/files
+        http-server: https://cdn.example.com/images
 
     - name: dicom
       type: minio
       minio:
-        endpoint: http://minio.internal:9000
+        end-point: minio.internal:9000
         access-key: admin
         secret-key: password
         bucket-name: dicom
-        create-bucket-if-absent: true
+        with-ssl: true
+        create-bucket-if-not-exists: true
 
-    - name: backup
+    - name: ceph-backup
       type: s3
       s3:
-        region: cn-northwest-1
+        server-url: http://ceph.internal:7480
         access-key-id: AKIAXXXXXXXX
         secret-access-key: xxxxxxxx
         bucket-name: my-backup
+        force-path-style: true
+
+    - name: amazon-archive
+      type: aws
+      aws:
+        region: us-east-1
+        container-name: my-bucket
+        use-credentials: true
+        profile-name: production
 
     - name: archive
       type: aliyun-oss
@@ -436,6 +536,15 @@ polystore:
         access-key-id: LTAIxxxxxxxx
         access-key-secret: xxxxxxxx
         bucket-name: my-archive
+
+    - name: ks3-archive
+      type: ks3
+      ks3:
+        endpoint: ks3-cn-beijing.ksyuncs.com
+        bucket-name: my-ks3-bucket
+        access-key: AKLTxxxxxxxx
+        secret-key: xxxxxxxx
+        protocol: https
 ```
 
 ---

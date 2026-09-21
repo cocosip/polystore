@@ -8,7 +8,10 @@ import java.util.Map;
  *
  * <p>Keys arriving from yml are kebab-case ({@code access-key}) while programmatic builders
  * naturally use camelCase ({@code accessKey}); lookups are case-insensitive and
- * separator-insensitive so both forms work. Missing required parameters raise
+ * separator-insensitive so both forms work. The fully qualified key style of the C# reference
+ * framework ({@code Minio.EndPoint}, {@code Aws.Region}, ...) is also accepted: a stored key
+ * matches when it equals the requested key or when its last dot-separated segment does. Missing
+ * required parameters raise
  * {@link IllegalStateException} — a configuration problem, not a storage operation failure.</p>
  */
 public final class ConfigUtils {
@@ -40,7 +43,8 @@ public final class ConfigUtils {
 
     /**
      * Returns the raw value for the given key, matching keys regardless of case and separator
-     * style.
+     * style. A stored key of the reference framework's qualified form ({@code Minio.EndPoint})
+     * also matches its plain logical key ({@code endPoint}).
      *
      * @param properties provider parameters, never {@code null}
      * @param key        logical key, e.g. {@code accessKey} or {@code access-key}
@@ -49,11 +53,23 @@ public final class ConfigUtils {
     public static Object get(Map<String, Object> properties, String key) {
         String normalized = normalizeKey(key);
         for (Map.Entry<String, Object> entry : properties.entrySet()) {
-            if (normalized.equals(normalizeKey(entry.getKey()))) {
+            if (matches(normalized, entry.getKey())) {
                 return entry.getValue();
             }
         }
         return null;
+    }
+
+    private static boolean matches(String normalizedKey, String storedKey) {
+        String normalizedStored = normalizeKey(storedKey);
+        if (normalizedStored == null) {
+            return false;
+        }
+        if (normalizedStored.equals(normalizedKey)) {
+            return true;
+        }
+        int lastDot = normalizedStored.lastIndexOf('.');
+        return lastDot >= 0 && normalizedStored.substring(lastDot + 1).equals(normalizedKey);
     }
 
     /**

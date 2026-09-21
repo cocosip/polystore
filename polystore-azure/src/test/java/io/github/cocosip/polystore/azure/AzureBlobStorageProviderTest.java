@@ -68,6 +68,49 @@ class AzureBlobStorageProviderTest {
     }
 
     @Test
+    void createContainerIfNotExistsShouldNotTouchTheNetworkAtConstruction() {
+        // the container is created lazily on save, so an unreachable account must not fail
+        // container construction even with the flag enabled
+        StorageContainer container = build(Map.of(
+                "accountName", "unreachableaccount",
+                "accountKey", "a2V5",
+                "containerName", "scans",
+                "createContainerIfNotExists", true));
+
+        assertThat(container.getProviderType()).isEqualTo("azure");
+        assertThat(container.getName()).isEqualTo("blobs");
+    }
+
+    @Test
+    void canonicalKeysShouldResolveRegardlessOfCaseAndSeparators() {
+        StorageContainer container = build(Map.of(
+                "Connection-String",
+                CONNECTION_STRING,
+                "Container_Name",
+                "scans",
+                "Create-Container-If-Not-Exists",
+                true,
+                "sas-expiry",
+                60));
+
+        assertThat(container.getProviderType()).isEqualTo("azure");
+    }
+
+    @Test
+    void sharpAbpQualifiedKeysShouldResolve() {
+        StorageContainer container = build(Map.of(
+                "Azure.ConnectionString",
+                CONNECTION_STRING,
+                "Azure.ContainerName",
+                "scans",
+                "Azure.CreateContainerIfNotExists",
+                true));
+
+        assertThat(container.getProviderType()).isEqualTo("azure");
+        assertThat(container.getUrl("dicom/1.dcm")).contains("sig=");
+    }
+
+    @Test
     void missingContainerNameShouldBeRejected() {
         assertThatThrownBy(() -> build(Map.of("connectionString", CONNECTION_STRING)))
                 .isInstanceOf(IllegalStateException.class)

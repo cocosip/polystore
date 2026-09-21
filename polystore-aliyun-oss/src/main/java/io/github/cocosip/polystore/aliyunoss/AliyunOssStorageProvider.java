@@ -1,21 +1,45 @@
 package io.github.cocosip.polystore.aliyunoss;
 
-import com.aliyun.oss.OSS;
-import com.aliyun.oss.OSSClientBuilder;
 import io.github.cocosip.polystore.ContainerConfiguration;
 import io.github.cocosip.polystore.DefaultStorageContainer;
 import io.github.cocosip.polystore.StorageContainer;
 import io.github.cocosip.polystore.StorageProvider;
-import io.github.cocosip.polystore.util.ConfigUtils;
+import java.util.Collection;
+import java.util.List;
 
 /**
- * Storage provider of type {@code aliyun-oss}.
+ * Storage provider of type {@code aliyun-oss} (Alibaba Cloud OSS). Parameter names follow the
+ * reference <i>SharpAbp.Abp.FileStoring.Aliyun</i> {@code AliyunFileProviderConfigurationNames}, so
+ * they are configured in the container's {@code aliyun-oss} section, e.g.
+ * {@code aliyun-oss: { endpoint: ..., bucketName: ... }}.
  *
- * <p>Parameters: {@code endpoint} (required, e.g. {@code oss-cn-hangzhou.aliyuncs.com}),
- * {@code accessKeyId} / {@code accessKeySecret} / {@code bucketName} (required),
- * {@code urlExpiry} (default 3600 seconds, presigned URL expiry) and {@code useInternal}
- * (default {@code false}; rewrites {@code .aliyuncs.com} endpoints to the {@code -internal}
- * intranet variant).</p>
+ * <p>Provider parameters:</p>
+ * <ul>
+ *   <li>{@code endpoint} (required) — OSS endpoint, e.g. {@code oss-cn-hangzhou.aliyuncs.com}</li>
+ *   <li>{@code bucketName} (required) — target bucket</li>
+ *   <li>{@code accessKeyId} / {@code accessKeySecret} (required) — sub-account key pair; in STS mode
+ *       it is exchanged for temporary credentials</li>
+ *   <li>{@code regionId} (required in STS mode) — Aliyun region id used to build the STS
+ *       profile</li>
+ *   <li>{@code useSecurityTokenService} (default {@code false}) — obtain temporary credentials
+ *       through STS {@code AssumeRole}; requires {@code roleArn} and {@code roleSessionName}</li>
+ *   <li>{@code roleArn} — role to assume, e.g. {@code acs:ram::$accountID:role/$roleName}</li>
+ *   <li>{@code roleSessionName} — session name identifying the temporary credentials</li>
+ *   <li>{@code durationSeconds} (default {@code 0}, service default) — temporary credential
+ *       validity</li>
+ *   <li>{@code policy} — additional policy narrowing the assumed role</li>
+ *   <li>{@code createContainerIfNotExists} (default {@code false}) — create the bucket lazily,
+ *       right before the first upload, exactly like the reference provider; container construction
+ *       never touches the network</li>
+ *   <li>{@code temporaryCredentialsCacheKey} (default {@code <container>/aliyun}) — process-wide
+ *       cache key of the STS temporary credentials</li>
+ *   <li>{@code urlExpiry} (default {@code 3600}, Polystore extension) — presigned URL expiry</li>
+ *   <li>{@code useInternal} (default {@code false}, Polystore extension) — rewrite
+ *       {@code .aliyuncs.com} endpoints to the {@code -internal} intranet variant</li>
+ * </ul>
+ *
+ * <p>The OSS client is created lazily on first use, so constructing a container performs no network
+ * call — not even when STS temporary credentials are enabled.</p>
  */
 public class AliyunOssStorageProvider implements StorageProvider {
 
@@ -28,17 +52,20 @@ public class AliyunOssStorageProvider implements StorageProvider {
     }
 
     @Override
-    public StorageContainer createContainer(ContainerConfiguration config) {
-        var properties = config.getProperties();
-        String endpoint = ConfigUtils.requireString(properties, "endpoint");
-        String accessKeyId = ConfigUtils.requireString(properties, "accessKeyId");
-        String accessKeySecret = ConfigUtils.requireString(properties, "accessKeySecret");
-        String bucketName = ConfigUtils.requireString(properties, "bucketName");
-        long urlExpiry = ConfigUtils.optLong(properties, "urlExpiry", 3600);
-        boolean useInternal = ConfigUtils.optBoolean(properties, "useInternal", false);
+    public Collection<String> getAliases() {
+        return List.of("Aliyun");
+    }
 
-        String resolvedEndpoint = useInternal ? endpoint.replace(".aliyuncs.com", "-internal.aliyuncs.com") : endpoint;
-        OSS client = new OSSClientBuilder().build(resolvedEndpoint, accessKeyId, accessKeySecret);
-        return DefaultStorageContainer.from(config, new AliyunOssStorageClient(client, bucketName, urlExpiry));
+    @Override
+    public StorageContainer createContainer(ContainerConfiguration config) {
+        AliyunOssStorageConfiguration configuration = AliyunOssStorageConfiguration.from(config);
+
+        return DefaultStorageContainer.from(
+                config,
+                new AliyunOssStorageClient(
+                        AliyunOssClientFactory.lazyClient(configuration),
+                        configuration.bucketName(),
+                        configuration.urlExpirySeconds(),
+                        configuration.createContainerIfNotExists()));
     }
 }

@@ -10,13 +10,12 @@
 
   <artifactId>polystore-s3</artifactId>
   <name>Polystore S3 Backend</name>
-  <description>AWS S3 / S3-compatible storage backend for Polystore (AWS SDK for Java v2).</description>
+  <description>S3-compatible storage backend for Polystore (AWS SDK for Java v2); Amazon Web Services itself is served by the polystore-aws module.</description>
 
   <dependencies>
     <dependency>
       <groupId>software.amazon.awssdk</groupId>
       <artifactId>s3</artifactId>
-      <version>2.30.18</version>
     </dependency>
     <dependency>
       <groupId>com.github.spotbugs</groupId>

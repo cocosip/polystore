@@ -92,13 +92,13 @@
 
 ---
 
-## 阶段五：质量与发布
+## 阶段五：质量与发布 ✅
 
-- [ ] 各模块 Javadoc 补全
-- [ ] README（项目简介、快速开始、各后端配置说明）
-- [ ] CHANGELOG 初始化
-- [ ] Maven 发布配置（`distributionManagement` / GPG 签名）
-- [ ] CI 流水线（编译 + 测试）
+- [x] 各模块 Javadoc 补全（构建内置 javadoc 生成卡口，公共 API 全覆盖）
+- [x] README（项目简介、快速开始、各后端配置说明）
+- [x] CHANGELOG 初始化（Keep a Changelog 格式）
+- [x] Maven 发布配置（`distributionManagement` / Sonatype Central + `release` profile GPG 签名，骨架阶段已就位）
+- [x] CI 流水线（GitHub Actions：Ubuntu + Windows 矩阵，JDK 21 Temurin，`mvnw verify`）
 
 ---
 

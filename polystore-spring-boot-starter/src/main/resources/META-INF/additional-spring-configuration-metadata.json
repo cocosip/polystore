@@ -1,0 +1,46 @@
+{
+  "properties": [
+    {
+      "name": "polystore.containers",
+      "type": "java.util.List<io.github.cocosip.polystore.spring.PolystoreProperties$ContainerProperties>",
+      "description": "Storage containers created at startup; the entry marked default=true answers StorageManager#getDefaultContainer."
+    },
+    {
+      "name": "polystore.containers[0].name",
+      "type": "java.lang.String",
+      "description": "Unique container name used with StorageManager#getContainer."
+    },
+    {
+      "name": "polystore.containers[0].type",
+      "type": "java.lang.String",
+      "description": "StorageProvider type identifier (e.g. local, minio, s3); also names the sibling key holding provider-specific parameters, e.g. polystore.containers[0].minio.endpoint."
+    },
+    {
+      "name": "polystore.containers[0].default",
+      "type": "java.lang.Boolean",
+      "defaultValue": false,
+      "description": "Marks this container as the default one; at most one container may be marked."
+    },
+    {
+      "name": "polystore.containers[0].tenant-isolation",
+      "type": "io.github.cocosip.polystore.TenantIsolationMode",
+      "defaultValue": "NONE",
+      "description": "Tenant isolation mode; PATH_PREFIX transparently prefixes every file path with the resolved tenant id."
+    }
+  ],
+  "hints": [
+    {
+      "name": "polystore.containers[0].tenant-isolation",
+      "values": [
+        {
+          "value": "NONE",
+          "description": "All tenants share the same path space (default)."
+        },
+        {
+          "value": "PATH_PREFIX",
+          "description": "Every file path is transparently prefixed with {tenantId}/."
+        }
+      ]
+    }
+  ]
+}

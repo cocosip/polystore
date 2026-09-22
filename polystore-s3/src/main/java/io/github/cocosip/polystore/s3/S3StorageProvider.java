@@ -33,8 +33,6 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
  *       Version 4</li>
  *   <li>{@code createBucketIfNotExists} (default {@code false}) — create the bucket lazily before
  *       the first upload</li>
- *   <li>{@code urlExpiry} (default {@code 3600}, Polystore extension) — presigned URL expiry in
- *       seconds</li>
  * </ul>
  */
 public class S3StorageProvider implements StorageProvider {
@@ -74,7 +72,6 @@ public class S3StorageProvider implements StorageProvider {
                 clientBuilder.build(),
                 presignerBuilder.build(),
                 configuration.bucketName(),
-                configuration.urlExpirySeconds(),
                 configuration.createBucketIfNotExists());
     }
 }

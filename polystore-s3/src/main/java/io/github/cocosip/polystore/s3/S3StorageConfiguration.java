@@ -1,7 +1,6 @@
 package io.github.cocosip.polystore.s3;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
-import io.github.cocosip.polystore.exception.StorageOperationException;
 import io.github.cocosip.polystore.util.ConfigUtils;
 import java.net.URI;
 import java.util.Map;
@@ -20,8 +19,6 @@ import java.util.Map;
  * @param useChunkEncoding        AWS chunked payload signing, default {@code false}
  * @param authenticationRegion    region used for AWS Signature Version 4, default
  *                                {@code us-east-1}
- * @param urlExpirySeconds        presigned URL expiry in seconds, default {@code 3600} (Polystore
- *                                extension)
  * @param createBucketIfNotExists create the bucket lazily before the first upload, default
  *                                {@code false}
  */
@@ -33,7 +30,6 @@ record S3StorageConfiguration(
         boolean forcePathStyle,
         boolean useChunkEncoding,
         String authenticationRegion,
-        int urlExpirySeconds,
         boolean createBucketIfNotExists) {
 
     /** Protocol value of {@code S3.Protocol} meaning HTTP. */
@@ -50,8 +46,8 @@ record S3StorageConfiguration(
      *
      * @param config container configuration holding the provider parameters
      * @return parsed configuration, never {@code null}
-     * @throws IllegalStateException     if a required parameter is missing
-     * @throws StorageOperationException if {@code serverUrl} is not a valid URI or carries no host
+     * @throws IllegalStateException if a required parameter is missing or {@code serverUrl} is not
+     *                               a valid URI or carries no host
      */
     static S3StorageConfiguration from(ContainerConfiguration config) {
         var properties = config.getProperties();
@@ -64,7 +60,6 @@ record S3StorageConfiguration(
         String authenticationRegion =
                 ConfigUtils.optString(properties, "authenticationRegion", DEFAULT_AUTHENTICATION_REGION);
         boolean createBucketIfNotExists = ConfigUtils.optBoolean(properties, "createBucketIfNotExists", false);
-        int urlExpirySeconds = ConfigUtils.optInt(properties, "urlExpiry", 3600);
         return new S3StorageConfiguration(
                 resolveEndpoint(serverUrl, properties),
                 accessKeyId,
@@ -73,7 +68,6 @@ record S3StorageConfiguration(
                 forcePathStyle,
                 useChunkEncoding,
                 authenticationRegion,
-                urlExpirySeconds,
                 createBucketIfNotExists);
     }
 
@@ -84,7 +78,7 @@ record S3StorageConfiguration(
      * @param serverUrl  configured server URL
      * @param properties provider parameters
      * @return endpoint URI, never {@code null}
-     * @throws StorageOperationException if the server URL is not a valid URI or carries no host
+     * @throws IllegalStateException if the server URL is not a valid URI or carries no host
      */
     private static URI resolveEndpoint(String serverUrl, Map<String, Object> properties) {
         String candidate = serverUrl;
@@ -94,13 +88,11 @@ record S3StorageConfiguration(
         try {
             URI uri = URI.create(candidate);
             if (uri.getHost() == null || uri.getHost().isEmpty()) {
-                throw new StorageOperationException("Invalid serverUrl, host is missing: " + serverUrl);
+                throw new IllegalStateException("Invalid storage parameter 'serverUrl', host is missing: " + serverUrl);
             }
             return uri;
-        } catch (StorageOperationException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new StorageOperationException("Invalid serverUrl: " + serverUrl, e);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException("Invalid storage parameter 'serverUrl': " + serverUrl, e);
         }
     }
 

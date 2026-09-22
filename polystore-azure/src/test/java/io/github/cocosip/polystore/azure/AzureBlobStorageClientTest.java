@@ -80,7 +80,7 @@ class AzureBlobStorageClientTest {
                 .when(blob)
                 .uploadWithResponse(any(BlobParallelUploadOptions.class), isNull(), isNull());
 
-        new AzureBlobStorageClient(container, 60, true).save(args(configuration(false), new byte[] {'x'}, 1));
+        new AzureBlobStorageClient(container, true).save(args(configuration(false), new byte[] {'x'}, 1));
 
         verify(container).create();
     }
@@ -99,7 +99,7 @@ class AzureBlobStorageClientTest {
                 })
                 .when(blob)
                 .uploadWithResponse(any(BlobParallelUploadOptions.class), isNull(), isNull());
-        return new CapturingBackend(new AzureBlobStorageClient(container, 60, false), options, uploaded);
+        return new CapturingBackend(new AzureBlobStorageClient(container, false), options, uploaded);
     }
 
     private static ContainerConfiguration configuration(boolean multipart) {

@@ -72,7 +72,7 @@ class HuaweiObsStorageClientTest {
     }
 
     private static HuaweiObsStorageClient client(RecordingObsClient sdk) {
-        return new HuaweiObsStorageClient(sdk, "dicom", 60, false);
+        return new HuaweiObsStorageClient(sdk, "dicom", false);
     }
 
     private static StorageProviderSaveArgs args(TrackingInputStream stream, long length) {

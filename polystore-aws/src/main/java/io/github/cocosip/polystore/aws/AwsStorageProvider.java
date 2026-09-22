@@ -34,7 +34,6 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
  *       key of the temporary credentials</li>
  *   <li>{@code createContainerIfNotExists} (default {@code false}) — create the bucket lazily
  *       before the first upload</li>
- *   <li>{@code urlExpiry} (default {@code 3600}, Polystore extension) — presigned URL expiry</li>
  * </ul>
  */
 public class AwsStorageProvider implements StorageProvider {
@@ -61,10 +60,6 @@ public class AwsStorageProvider implements StorageProvider {
                 .credentialsProvider(credentials)
                 .build();
         return new AwsStorageClient(
-                client,
-                presigner,
-                configuration.containerName(),
-                configuration.urlExpirySeconds(),
-                configuration.createContainerIfNotExists());
+                client, presigner, configuration.containerName(), configuration.createContainerIfNotExists());
     }
 }

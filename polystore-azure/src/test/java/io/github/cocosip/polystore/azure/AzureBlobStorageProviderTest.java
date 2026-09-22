@@ -58,14 +58,14 @@ class AzureBlobStorageProviderTest {
     }
 
     @Test
-    void sasExpiryExtensionShouldRemainParseable() {
-        assertThat(AzureBlobStorageConfiguration.from(configuration(Map.of(
-                                "accountName", "devstore",
-                                "accountKey", "a2V5",
-                                "containerName", "scans",
-                                "sasExpiry", 120)))
-                        .sasExpirySeconds())
-                .isEqualTo(120);
+    void unknownSasExpiryKeyShouldBeIgnoredWithoutBreakingParsing() {
+        AzureBlobStorageConfiguration configuration = AzureBlobStorageConfiguration.from(configuration(Map.of(
+                "accountName", "devstore",
+                "accountKey", "a2V5",
+                "containerName", "scans",
+                "sasExpiry", 120)));
+
+        assertThat(configuration.containerName()).isEqualTo("scans");
     }
 
     @Test

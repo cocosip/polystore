@@ -21,7 +21,6 @@ import io.minio.MinioClient;
  *   <li>{@code region} (default {@code us-east-1}, Polystore extension) — signing region; setting
  *       it lets {@code getUrl} compute the presigned URL locally instead of querying the bucket
  *       location over the network</li>
- *   <li>{@code urlExpiry} (default {@code 3600}, Polystore extension) — presigned URL expiry</li>
  * </ul>
  */
 public class MinioStorageProvider implements StorageProvider {
@@ -43,9 +42,6 @@ public class MinioStorageProvider implements StorageProvider {
                 .credentials(configuration.accessKey(), configuration.secretKey())
                 .region(configuration.region());
         return new MinioStorageClient(
-                builder.build(),
-                configuration.bucketName(),
-                configuration.urlExpirySeconds(),
-                configuration.createBucketIfNotExists());
+                builder.build(), configuration.bucketName(), configuration.createBucketIfNotExists());
     }
 }

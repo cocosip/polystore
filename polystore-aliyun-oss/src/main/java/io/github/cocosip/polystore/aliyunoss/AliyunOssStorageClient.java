@@ -38,16 +38,11 @@ public final class AliyunOssStorageClient implements StorageBackend {
     private volatile OSS client;
 
     /** Creates the OSS backend. */
-    public AliyunOssStorageClient(
-            OSS client, String bucketName, long ignoredUrlExpirySeconds, boolean createContainerIfNotExists) {
-        this(() -> client, bucketName, ignoredUrlExpirySeconds, createContainerIfNotExists);
+    public AliyunOssStorageClient(OSS client, String bucketName, boolean createContainerIfNotExists) {
+        this(() -> client, bucketName, createContainerIfNotExists);
     }
 
-    AliyunOssStorageClient(
-            Supplier<OSS> clientSupplier,
-            String bucketName,
-            long ignoredUrlExpirySeconds,
-            boolean createContainerIfNotExists) {
+    AliyunOssStorageClient(Supplier<OSS> clientSupplier, String bucketName, boolean createContainerIfNotExists) {
         this.clientSupplier = clientSupplier;
         this.bucketName = bucketName;
         this.createContainerIfNotExists = createContainerIfNotExists;

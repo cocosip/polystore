@@ -420,7 +420,6 @@ failure is attached as a suppressed exception so the original upload failure rem
 | `accessKeySecret` | Access Key Secret | required |
 | `bucketName` | Bucket name | required |
 | `createContainerIfNotExists` | Create the bucket on the first save | `false` |
-| `urlExpiry` | Signed URL expiry (seconds, extension) | `3600` |
 
 - Built on `com.huaweicloud:esdk-obs-java`.
 
@@ -445,9 +444,12 @@ failure is attached as a suppressed exception so the original upload failure rem
 | `basePath` | Remote root directory | required |
 | `urlPrefix` | File URL prefix | `""` |
 | `poolSize` | Connection pool size | `5` |
+| `strictHostKeyChecking` | JSch host key policy (extension); `yes` is recommended in production | `no` |
 
 - Built on `com.github.mwiede:jsch` (the maintained JSch fork).
-- Connections are pooled so SSH sessions are not re-established per operation.
+- Connections are pooled so SSH sessions are not re-established per operation; `getOrNull` streams
+  over the leased connection and returns it to the pool when the caller closes the stream, and
+  disconnected channels are evicted instead of reused.
 
 ---
 

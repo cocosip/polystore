@@ -72,7 +72,7 @@ class Ks3StorageProviderTest {
     }
 
     @Test
-    void explicitExpiryShouldBeAccepted() {
+    void explicitUrlExpiryShouldComeFromTheCaller() {
         String url = container(with("urlExpiry", 60))
                 .getAccessUrl("a.txt", Instant.now().plusSeconds(301), false);
 

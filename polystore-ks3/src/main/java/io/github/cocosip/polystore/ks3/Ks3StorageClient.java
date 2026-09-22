@@ -38,8 +38,7 @@ public final class Ks3StorageClient implements StorageBackend {
     @SuppressFBWarnings(
             value = "EI_EXPOSE_REP2",
             justification = "wrapping the backend SDK client is the purpose of this class")
-    public Ks3StorageClient(
-            Ks3Client client, String bucketName, int ignoredUrlExpirySeconds, boolean createContainerIfNotExists) {
+    public Ks3StorageClient(Ks3Client client, String bucketName, boolean createContainerIfNotExists) {
         this.client = client;
         this.bucketName = bucketName;
         this.createContainerIfNotExists = createContainerIfNotExists;

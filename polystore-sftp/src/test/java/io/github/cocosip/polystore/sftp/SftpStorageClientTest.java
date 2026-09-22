@@ -2,6 +2,7 @@ package io.github.cocosip.polystore.sftp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.jcraft.jsch.ChannelSftp;
 import io.github.cocosip.polystore.ContainerConfiguration;
@@ -13,12 +14,18 @@ import io.github.cocosip.polystore.StorageProviderSaveArgs;
 import io.github.cocosip.polystore.exception.StorageFileAlreadyExistsException;
 import io.github.cocosip.polystore.exception.StorageOperationException;
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.Test;
 
 class SftpStorageClientTest {
@@ -28,6 +35,8 @@ class SftpStorageClientTest {
     private static final class FakeChannelFactory implements SftpChannelFactory {
         final Map<String, byte[]> files = new HashMap<>();
         final List<Integer> created = new ArrayList<>();
+        final List<FakeChannel> channels = new ArrayList<>();
+        final List<PooledSftpChannel> pooled = new ArrayList<>();
 
         @Override
         public PooledSftpChannel create(
@@ -38,10 +47,21 @@ class SftpStorageClientTest {
                 String privateKeyPath,
                 String strictHostKeyChecking) {
             created.add(1);
-            return new PooledSftpChannel(new FakeChannel(), null);
+            FakeChannel channel = new FakeChannel();
+            channels.add(channel);
+            PooledSftpChannel pooledChannel = new PooledSftpChannel(channel, null);
+            pooled.add(pooledChannel);
+            return pooledChannel;
         }
 
         final class FakeChannel extends ChannelSftp {
+            volatile boolean alive = true;
+
+            @Override
+            public boolean isConnected() {
+                return alive;
+            }
+
             @Override
             public void put(java.io.InputStream src, String dst, int mode) {
                 try {
@@ -71,11 +91,12 @@ class SftpStorageClientTest {
         }
     }
 
+    private SftpConnectionPool pool(FakeChannelFactory factory, int poolSize) {
+        return new SftpConnectionPool(factory, "sftp.internal", 22, "user", "pw", null, "no", poolSize);
+    }
+
     private SftpStorageClient backend(FakeChannelFactory factory) {
-        return new SftpStorageClient(
-                new SftpConnectionPool(factory, "sftp.internal", 22, "user", "pw", null, "no", 2),
-                "/data/files",
-                "https://files.example.com");
+        return new SftpStorageClient(pool(factory, 2), "/data/files", "https://files.example.com");
     }
 
     private StorageProviderSaveArgs saveArgs(String id, String text, long length, boolean override) {
@@ -124,6 +145,20 @@ class SftpStorageClientTest {
     }
 
     @Test
+    void pathSegmentsEscapingTheBasePathShouldBeRejected() {
+        FakeChannelFactory factory = new FakeChannelFactory();
+        SftpStorageClient backend = backend(factory);
+
+        assertThatThrownBy(() -> backend.save(saveArgs("../escape.txt", "x", 1, true)))
+                .isInstanceOf(StorageOperationException.class)
+                .hasMessageContaining("escapes the base path");
+        assertThatThrownBy(() -> backend.exists(new StorageProviderExistsArgs("files", CONFIG, "a/../../b.txt")))
+                .isInstanceOf(StorageOperationException.class)
+                .hasMessageContaining("escapes the base path");
+        assertThat(factory.files).isEmpty();
+    }
+
+    @Test
     void accessUrlAndPoolReuseShouldWork() {
         FakeChannelFactory factory = new FakeChannelFactory();
         SftpStorageClient backend = backend(factory);
@@ -132,6 +167,61 @@ class SftpStorageClientTest {
         assertThat(backend.getAccessUrl(new StorageProviderAccessArgs(
                         "files", CONFIG, "a.txt", Instant.parse("2026-09-22T00:00:00Z"), false)))
                 .isEqualTo("https://files.example.com/a.txt");
+    }
+
+    @Test
+    void exhaustedPoolShouldBlockUntilAChannelIsReleased() throws Exception {
+        FakeChannelFactory factory = new FakeChannelFactory();
+        SftpConnectionPool pool = pool(factory, 1);
+        SftpChannelFactory.PooledSftpChannel first = pool.borrow();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<SftpChannelFactory.PooledSftpChannel> second = executor.submit(pool::borrow);
+            // the pool is at capacity: the second borrow must still be blocked
+            assertThrows(TimeoutException.class, () -> second.get(100, TimeUnit.MILLISECONDS));
+            pool.release(first);
+            assertThat(second.get(2, TimeUnit.SECONDS)).isSameAs(first);
+            assertThat(factory.created).hasSize(1);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void deadChannelsShouldBeEvictedInsteadOfReused() throws Exception {
+        FakeChannelFactory factory = new FakeChannelFactory();
+        SftpConnectionPool pool = pool(factory, 1);
+        SftpChannelFactory.PooledSftpChannel first = pool.borrow();
+        factory.channels.get(0).alive = false;
+
+        pool.release(first);
+
+        SftpChannelFactory.PooledSftpChannel second = pool.borrow();
+        assertThat(second).isNotSameAs(first);
+        assertThat(factory.created).hasSize(2);
+    }
+
+    @Test
+    void openStreamShouldHoldTheLeaseUntilClosed() throws Exception {
+        FakeChannelFactory factory = new FakeChannelFactory();
+        SftpConnectionPool pool = pool(factory, 1);
+        SftpStorageClient backend = new SftpStorageClient(pool, "/data/files", "");
+        backend.save(saveArgs("a.txt", "hello", 5, false));
+
+        InputStream stream = backend.getOrNull(new StorageProviderGetArgs("files", CONFIG, "a.txt"));
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            assertThat(stream.readAllBytes()).asString(StandardCharsets.UTF_8).isEqualTo("hello");
+            // the pooled channel is still leased by the open stream
+            Future<SftpChannelFactory.PooledSftpChannel> concurrent = executor.submit(pool::borrow);
+            assertThrows(TimeoutException.class, () -> concurrent.get(100, TimeUnit.MILLISECONDS));
+
+            stream.close();
+
+            assertThat(concurrent.get(2, TimeUnit.SECONDS)).isSameAs(factory.pooled.get(0));
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test

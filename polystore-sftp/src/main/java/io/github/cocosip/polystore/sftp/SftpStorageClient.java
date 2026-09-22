@@ -12,7 +12,8 @@ import io.github.cocosip.polystore.StorageProviderSaveArgs;
 import io.github.cocosip.polystore.exception.StorageFileAlreadyExistsException;
 import io.github.cocosip.polystore.exception.StorageOperationException;
 import io.github.cocosip.polystore.util.ExactLengthInputStream;
-import java.io.ByteArrayInputStream;
+import java.io.FilterInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 
@@ -36,6 +37,7 @@ public final class SftpStorageClient implements StorageBackend {
                         args.getContainerName(), args.getConfiguration(), args.getFileId()))) {
             throw new StorageFileAlreadyExistsException(args.getFileId());
         }
+        validateFileId(args.getFileId());
         ExactLengthInputStream bounded = new ExactLengthInputStream(args.getFileStream(), args.getContentLength());
         SftpChannelFactory.PooledSftpChannel leased = pool.borrow();
         try {
@@ -51,28 +53,35 @@ public final class SftpStorageClient implements StorageBackend {
 
     @Override
     public InputStream getOrNull(StorageProviderGetArgs args) {
+        validateFileId(args.getFileId());
         SftpChannelFactory.PooledSftpChannel leased = pool.borrow();
+        InputStream remote;
         try {
-            return new ByteArrayInputStream(
-                    leased.channel().get(resolve(args.getFileId())).readAllBytes());
+            remote = leased.channel().get(resolve(args.getFileId()));
         } catch (SftpException e) {
+            pool.release(leased);
             if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) return null;
             throw new StorageOperationException("Failed to get file: " + args.getFileId(), e);
-        } catch (java.io.IOException e) {
-            throw new StorageOperationException("Failed to read file: " + args.getFileId(), e);
-        } finally {
+        } catch (Exception e) {
             pool.release(leased);
+            throw new StorageOperationException("Failed to get file: " + args.getFileId(), e);
         }
+        // the channel stays leased until the caller closes the stream, so the remote content is
+        // streamed instead of being buffered in memory
+        return new LeaseHoldingInputStream(remote, pool, leased);
     }
 
     @Override
     public boolean delete(StorageProviderDeleteArgs args) {
+        validateFileId(args.getFileId());
         SftpChannelFactory.PooledSftpChannel leased = pool.borrow();
         try {
             leased.channel().rm(resolve(args.getFileId()));
             return true;
         } catch (SftpException e) {
             if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) return false;
+            throw new StorageOperationException("Failed to delete file: " + args.getFileId(), e);
+        } catch (Exception e) {
             throw new StorageOperationException("Failed to delete file: " + args.getFileId(), e);
         } finally {
             pool.release(leased);
@@ -81,12 +90,15 @@ public final class SftpStorageClient implements StorageBackend {
 
     @Override
     public boolean exists(StorageProviderExistsArgs args) {
+        validateFileId(args.getFileId());
         SftpChannelFactory.PooledSftpChannel leased = pool.borrow();
         try {
             leased.channel().stat(resolve(args.getFileId()));
             return true;
         } catch (SftpException e) {
             if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) return false;
+            throw new StorageOperationException("Failed to check file: " + args.getFileId(), e);
+        } catch (Exception e) {
             throw new StorageOperationException("Failed to check file: " + args.getFileId(), e);
         } finally {
             pool.release(leased);
@@ -111,7 +123,42 @@ public final class SftpStorageClient implements StorageBackend {
         return urlPrefix.isEmpty() ? args.getFileId() : urlPrefix + "/" + args.getFileId();
     }
 
+    private void validateFileId(String fileId) {
+        for (String segment : fileId.split("/")) {
+            if ("..".equals(segment)) {
+                throw new StorageOperationException("File id escapes the base path: " + fileId);
+            }
+        }
+    }
+
     private String resolve(String fileId) {
         return fileId.startsWith("/") ? basePath + fileId : basePath + "/" + fileId;
+    }
+
+    /**
+     * Remote stream that holds the pooled channel lease until the caller closes it; closing
+     * releases the channel back to the pool (a dead channel is evicted there). The pool is never
+     * blocked while the caller consumes the stream.
+     */
+    private static final class LeaseHoldingInputStream extends FilterInputStream {
+
+        private final SftpConnectionPool pool;
+        private final SftpChannelFactory.PooledSftpChannel leased;
+
+        LeaseHoldingInputStream(
+                InputStream delegate, SftpConnectionPool pool, SftpChannelFactory.PooledSftpChannel leased) {
+            super(delegate);
+            this.pool = pool;
+            this.leased = leased;
+        }
+
+        @Override
+        public void close() throws IOException {
+            try {
+                super.close();
+            } finally {
+                pool.release(leased);
+            }
+        }
     }
 }

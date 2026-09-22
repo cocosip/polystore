@@ -57,7 +57,7 @@ class AliyunOssStorageClientTest {
     }
 
     private static AliyunOssStorageClient client(RecordingOss oss) {
-        return new AliyunOssStorageClient(() -> oss.proxy(), "archive", 60, false);
+        return new AliyunOssStorageClient(() -> oss.proxy(), "archive", false);
     }
 
     private static StorageProviderSaveArgs args(TrackingInputStream stream, long length) {

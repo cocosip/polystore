@@ -24,7 +24,7 @@ class MinioStorageClientTest {
     private static final long FIVE_MIB = 5L * 1024 * 1024;
 
     private static MinioStorageClient client(RecordingMinioClient sdk, boolean createBucketIfNotExists) {
-        return new MinioStorageClient(sdk, "dicom", 60, createBucketIfNotExists);
+        return new MinioStorageClient(sdk, "dicom", createBucketIfNotExists);
     }
 
     private static ContainerConfiguration configuration(boolean multipart, long threshold, long partSize) {

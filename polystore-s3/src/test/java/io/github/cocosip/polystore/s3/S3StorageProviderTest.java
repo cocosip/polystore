@@ -6,7 +6,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.github.cocosip.polystore.ContainerConfiguration;
 import io.github.cocosip.polystore.DefaultStorageContainer;
 import io.github.cocosip.polystore.StorageContainer;
-import io.github.cocosip.polystore.exception.StorageOperationException;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
@@ -19,8 +18,7 @@ class S3StorageProviderTest {
             "accessKeyId", "ak",
             "secretAccessKey", "sk",
             "bucketName", "backup",
-            "forcePathStyle", true,
-            "urlExpiry", 60);
+            "forcePathStyle", true);
 
     private static StorageContainer container(Map<String, Object> properties) {
         ContainerConfiguration configuration = ContainerConfiguration.builder()
@@ -170,7 +168,7 @@ class S3StorageProviderTest {
                                         "bucketName",
                                         "b"))
                                 .build()))
-                .isInstanceOf(StorageOperationException.class)
+                .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("serverUrl");
     }
 

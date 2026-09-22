@@ -30,7 +30,6 @@ import java.util.Map;
  * @param useAwsSignature             use the AWS signature instead of the KS3 native one; must stay
  *                                    {@code false} for KS3 itself
  * @param createContainerIfNotExists  create the bucket before the first upload when absent
- * @param urlExpirySeconds            presigned URL expiry in seconds
  */
 record Ks3StorageConfiguration(
         String bucketName,
@@ -44,8 +43,7 @@ record Ks3StorageConfiguration(
         Integer readWriteTimeout,
         Ks3ClientConfig.SignerVersion signerVersion,
         boolean useAwsSignature,
-        boolean createContainerIfNotExists,
-        int urlExpirySeconds) {
+        boolean createContainerIfNotExists) {
 
     /**
      * Parses the provider parameters, applying the reference defaults and validating the required
@@ -69,7 +67,6 @@ record Ks3StorageConfiguration(
         Ks3ClientConfig.SignerVersion signerVersion = resolveSignerVersion(properties);
         boolean useAwsSignature = ConfigUtils.optBoolean(properties, "useAwsSignature", false);
         boolean createContainerIfNotExists = ConfigUtils.optBoolean(properties, "createContainerIfNotExists", false);
-        int urlExpiry = ConfigUtils.optInt(properties, "urlExpiry", 3600);
 
         return new Ks3StorageConfiguration(
                 bucketName,
@@ -83,8 +80,7 @@ record Ks3StorageConfiguration(
                 readWriteTimeout,
                 signerVersion,
                 useAwsSignature,
-                createContainerIfNotExists,
-                urlExpiry);
+                createContainerIfNotExists);
     }
 
     private static boolean resolveHttps(Map<String, Object> properties, String endpoint) {

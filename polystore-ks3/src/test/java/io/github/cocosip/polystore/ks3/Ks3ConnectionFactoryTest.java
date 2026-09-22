@@ -11,19 +11,7 @@ class Ks3ConnectionFactoryTest {
 
     private static Ks3StorageConfiguration configuration(boolean https) {
         return new Ks3StorageConfiguration(
-                "archive",
-                "ks3-cn-beijing.ksyuncs.com",
-                "ak",
-                "sk",
-                https,
-                null,
-                null,
-                null,
-                null,
-                null,
-                false,
-                false,
-                3600);
+                "archive", "ks3-cn-beijing.ksyuncs.com", "ak", "sk", https, null, null, null, null, null, false, false);
     }
 
     @Test
@@ -68,8 +56,7 @@ class Ks3ConnectionFactoryTest {
                 null,
                 Ks3ClientConfig.SignerVersion.V4,
                 false,
-                false,
-                3600);
+                false);
 
         assertThat(Ks3ConnectionFactory.clientConfig(v4).getVersion()).isEqualTo(Ks3ClientConfig.SignerVersion.V4);
     }
@@ -77,19 +64,7 @@ class Ks3ConnectionFactoryTest {
     @Test
     void awsSignatureShouldOnlyBeEnabledExplicitly() {
         Ks3StorageConfiguration aws = new Ks3StorageConfiguration(
-                "archive",
-                "ks3-cn-beijing.ksyuncs.com",
-                "ak",
-                "sk",
-                false,
-                null,
-                null,
-                null,
-                null,
-                null,
-                true,
-                false,
-                3600);
+                "archive", "ks3-cn-beijing.ksyuncs.com", "ak", "sk", false, null, null, null, null, null, true, false);
 
         assertThat(Ks3ConnectionFactory.clientConfig(aws).isUseAwsSignature()).isTrue();
     }
@@ -108,8 +83,7 @@ class Ks3ConnectionFactoryTest {
                 6000,
                 null,
                 false,
-                false,
-                3600);
+                false);
 
         HttpClientConfig httpClientConfig =
                 Ks3ConnectionFactory.clientConfig(configured).getHttpClientConfig();

@@ -30,8 +30,7 @@ public final class AzureBlobStorageClient implements StorageBackend {
 
     /** Creates the Azure Blob backend. */
     @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "the SDK client is intentionally shared")
-    public AzureBlobStorageClient(
-            BlobContainerClient containerClient, long ignoredSasExpirySeconds, boolean createContainerIfNotExists) {
+    public AzureBlobStorageClient(BlobContainerClient containerClient, boolean createContainerIfNotExists) {
         this.containerClient = containerClient;
         this.createContainerIfNotExists = createContainerIfNotExists;
     }

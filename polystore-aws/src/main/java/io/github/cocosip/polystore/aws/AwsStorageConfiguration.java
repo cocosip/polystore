@@ -27,7 +27,6 @@ import io.github.cocosip.polystore.util.ConfigUtils;
  * @param policy                            federation token policy, required by the federated mode
  * @param temporaryCredentialsCacheKey      cache key of the temporary credentials, so containers
  *                                          sharing a key share the cached session
- * @param urlExpirySeconds                  presigned URL expiry in seconds
  * @param createContainerIfNotExists        create the bucket before the first upload when absent
  */
 record AwsStorageConfiguration(
@@ -44,7 +43,6 @@ record AwsStorageConfiguration(
         String name,
         String policy,
         String temporaryCredentialsCacheKey,
-        int urlExpirySeconds,
         boolean createContainerIfNotExists) {
 
     /**
@@ -71,7 +69,6 @@ record AwsStorageConfiguration(
                 ConfigUtils.optString(properties, "name", ""),
                 ConfigUtils.optString(properties, "policy", ""),
                 ConfigUtils.optString(properties, "temporaryCredentialsCacheKey", config.getName() + "/aws"),
-                ConfigUtils.optInt(properties, "urlExpiry", 3600),
                 ConfigUtils.optBoolean(properties, "createContainerIfNotExists", false));
     }
 }

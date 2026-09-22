@@ -101,7 +101,7 @@ class S3StorageClientTest {
                 .serviceConfiguration(
                         S3Configuration.builder().pathStyleAccessEnabled(true).build())
                 .build();
-        return new S3StorageClient(sdk.proxy(), presigner, "backup", 60, create);
+        return new S3StorageClient(sdk.proxy(), presigner, "backup", create);
     }
 
     private static StorageProviderSaveArgs args(TrackingInputStream stream, long length) {

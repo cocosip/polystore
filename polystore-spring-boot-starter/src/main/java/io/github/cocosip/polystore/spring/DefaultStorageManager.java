@@ -2,6 +2,7 @@ package io.github.cocosip.polystore.spring;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
 import io.github.cocosip.polystore.DefaultStorageContainer;
+import io.github.cocosip.polystore.StorageBackend;
 import io.github.cocosip.polystore.StorageContainer;
 import io.github.cocosip.polystore.StorageManager;
 import io.github.cocosip.polystore.StorageProvider;
@@ -78,7 +79,7 @@ public final class DefaultStorageManager implements StorageManager {
                 throw new StorageProviderNotFoundException(configuration.getType());
             }
             StorageContainer container =
-                    DefaultStorageContainer.from(configuration, provider.createBackend(configuration));
+                    DefaultStorageContainer.from(configuration, createBackend(provider, configuration));
             if (container.getInfo().isDefault()) {
                 defaultName = configuration.getName();
                 defaultCount++;
@@ -94,6 +95,20 @@ public final class DefaultStorageManager implements StorageManager {
 
     private static String normalizedType(String type) {
         return type == null ? "" : type.toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * Creates the backend of one container, naming the container when the provider rejects the
+     * configuration — the raw validation errors (e.g. "Missing required storage parameter
+     * 'endPoint'") do not carry it themselves.
+     */
+    private static StorageBackend createBackend(StorageProvider provider, ContainerConfiguration configuration) {
+        try {
+            return provider.createBackend(configuration);
+        } catch (IllegalStateException e) {
+            throw new IllegalStateException(
+                    "Invalid configuration of container '" + configuration.getName() + "': " + e.getMessage(), e);
+        }
     }
 
     private static StorageContainer wrap(

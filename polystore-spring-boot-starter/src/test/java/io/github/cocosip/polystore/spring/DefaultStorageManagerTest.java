@@ -4,8 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.cocosip.polystore.ContainerConfiguration;
+import io.github.cocosip.polystore.StorageBackend;
 import io.github.cocosip.polystore.StorageContainer;
 import io.github.cocosip.polystore.StorageManager;
+import io.github.cocosip.polystore.StorageProvider;
 import io.github.cocosip.polystore.TenantIsolationMode;
 import io.github.cocosip.polystore.exception.ContainerNotFoundException;
 import io.github.cocosip.polystore.exception.StorageProviderNotFoundException;
@@ -94,6 +96,33 @@ class DefaultStorageManagerTest {
                 .hasMessageContaining("Minio")
                 .satisfies(throwable -> assertThat(((StorageProviderNotFoundException) throwable).getProviderType())
                         .isEqualTo("Minio"));
+    }
+
+    @Test
+    void invalidProviderConfigurationShouldBeRejectedNamingTheContainer() {
+        StorageProvider failing = new StorageProvider() {
+            @Override
+            public String getType() {
+                return "failing";
+            }
+
+            @Override
+            public StorageBackend createBackend(ContainerConfiguration config) {
+                throw new IllegalStateException("Missing required storage parameter 'endPoint'");
+            }
+        };
+
+        assertThatThrownBy(() -> new DefaultStorageManager(
+                        List.of(ContainerConfiguration.builder()
+                                .name("dicom")
+                                .type("failing")
+                                .build()),
+                        List.of(failing),
+                        null,
+                        null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("dicom")
+                .hasMessageContaining("endPoint");
     }
 
     @Test

@@ -32,13 +32,13 @@ import java.util.List;
  *       never touches the network</li>
  *   <li>{@code temporaryCredentialsCacheKey} (default {@code <container>/aliyun}) — process-wide
  *       cache key of the STS temporary credentials</li>
- *   <li>{@code urlExpiry} (default {@code 3600}, Polystore extension) — presigned URL expiry</li>
  *   <li>{@code useInternal} (default {@code false}, Polystore extension) — rewrite
  *       {@code .aliyuncs.com} endpoints to the {@code -internal} intranet variant</li>
  * </ul>
  *
  * <p>The OSS client is created lazily on first use, so constructing a container performs no network
- * call — not even when STS temporary credentials are enabled.</p>
+ * call — not even when STS temporary credentials are enabled; in STS mode the credentials are
+ * refreshed transparently once they expire.</p>
  */
 public class AliyunOssStorageProvider implements StorageProvider {
 
@@ -60,7 +60,8 @@ public class AliyunOssStorageProvider implements StorageProvider {
         AliyunOssStorageConfiguration configuration = AliyunOssStorageConfiguration.from(config);
 
         return new AliyunOssStorageClient(
-                AliyunOssClientFactory.lazyClient(configuration), configuration.bucketName(),
-                configuration.urlExpirySeconds(), configuration.createContainerIfNotExists());
+                AliyunOssClientFactory.lazyClient(configuration),
+                configuration.bucketName(),
+                configuration.createContainerIfNotExists());
     }
 }

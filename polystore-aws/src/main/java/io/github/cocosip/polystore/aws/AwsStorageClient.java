@@ -51,11 +51,7 @@ public final class AwsStorageClient implements StorageBackend {
             value = "EI_EXPOSE_REP2",
             justification = "the initialized SDK clients are intentionally shared with the backend")
     public AwsStorageClient(
-            S3Client client,
-            S3Presigner presigner,
-            String containerName,
-            int ignoredUrlExpirySeconds,
-            boolean createContainerIfNotExists) {
+            S3Client client, S3Presigner presigner, String containerName, boolean createContainerIfNotExists) {
         this.client = client;
         this.presigner = presigner;
         this.containerName = containerName;

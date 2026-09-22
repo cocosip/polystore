@@ -15,7 +15,6 @@ import io.github.cocosip.polystore.util.ConfigUtils;
  * @param accountName                storage account name used when no connection string is given
  * @param accountKey                 storage account key used when no connection string is given
  * @param containerName              target blob container, never blank
- * @param sasExpirySeconds           SAS token validity in seconds for {@code getAccessUrl}
  * @param createContainerIfNotExists create the blob container lazily, right before the first upload
  */
 record AzureBlobStorageConfiguration(
@@ -23,7 +22,6 @@ record AzureBlobStorageConfiguration(
         String accountName,
         String accountKey,
         String containerName,
-        long sasExpirySeconds,
         boolean createContainerIfNotExists) {
 
     /**
@@ -42,13 +40,12 @@ record AzureBlobStorageConfiguration(
         String accountKey = ConfigUtils.optString(properties, "accountKey", "");
         String containerName = ConfigUtils.requireString(properties, "containerName");
         boolean createContainerIfNotExists = ConfigUtils.optBoolean(properties, "createContainerIfNotExists", false);
-        long sasExpiry = ConfigUtils.optLong(properties, "sasExpiry", 3600);
 
         if (connectionString.isEmpty() && (accountName.isEmpty() || accountKey.isEmpty())) {
             throw new IllegalStateException("Azure credentials require either 'connectionString' or the 'accountName'"
                     + " + 'accountKey' pair");
         }
         return new AzureBlobStorageConfiguration(
-                connectionString, accountName, accountKey, containerName, sasExpiry, createContainerIfNotExists);
+                connectionString, accountName, accountKey, containerName, createContainerIfNotExists);
     }
 }

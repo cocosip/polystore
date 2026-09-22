@@ -58,12 +58,11 @@ class MinioStorageProviderTest {
     }
 
     @Test
-    void urlExpiryExtensionShouldRemainParseable() {
+    void unknownUrlExpiryKeyShouldBeIgnoredWithoutBreakingParsing() {
         Map<String, Object> properties = new HashMap<>(FULL);
         properties.put("urlExpiry", 60);
 
-        assertThat(MinioStorageConfiguration.from(configuration(properties)).urlExpirySeconds())
-                .isEqualTo(60);
+        assertThat(container(properties).getProviderType()).isEqualTo("minio");
     }
 
     @Test

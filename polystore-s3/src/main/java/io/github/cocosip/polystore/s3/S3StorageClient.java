@@ -47,12 +47,7 @@ public final class S3StorageClient implements StorageBackend {
 
     /** Creates the S3-compatible backend. */
     @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "SDK clients are intentionally shared")
-    public S3StorageClient(
-            S3Client client,
-            S3Presigner presigner,
-            String bucketName,
-            int ignoredUrlExpirySeconds,
-            boolean createBucketIfNotExists) {
+    public S3StorageClient(S3Client client, S3Presigner presigner, String bucketName, boolean createBucketIfNotExists) {
         this.client = client;
         this.presigner = presigner;
         this.bucketName = bucketName;

@@ -133,11 +133,10 @@ class AwsCredentialsResolverTest {
     }
 
     @Test
-    void configurationShouldApplyTheDefaultCacheKeyAndUrlExpiry() {
+    void configurationShouldApplyTheDefaultCacheKey() {
         AwsStorageConfiguration configuration = configuration(staticProperties());
 
         assertThat(configuration.temporaryCredentialsCacheKey()).isEqualTo("archive/aws");
-        assertThat(configuration.urlExpirySeconds()).isEqualTo(3600);
         assertThat(configuration.createContainerIfNotExists()).isFalse();
     }
 }

@@ -43,10 +43,21 @@ public final class ContainerConfigurationFactory {
         List<ContainerConfiguration> configurations = new ArrayList<>(typed.size());
         for (int i = 0; i < typed.size(); i++) {
             PolystoreProperties.ContainerProperties container = typed.get(i);
-            Map<String, Object> section = i < raw.size() ? providerSection(raw.get(i), container.getType()) : Map.of();
+            requireNameAndType(container);
+            Map<String, Object> section =
+                    i < raw.size() ? providerSection(raw.get(i), container.getName(), container.getType()) : Map.of();
             configurations.add(toConfiguration(container, section));
         }
         return configurations;
+    }
+
+    private static void requireNameAndType(PolystoreProperties.ContainerProperties container) {
+        if (isBlank(container.getName())) {
+            throw new IllegalStateException("polystore.containers[].name must not be blank");
+        }
+        if (isBlank(container.getType())) {
+            throw new IllegalStateException("polystore.containers[" + container.getName() + "].type must not be blank");
+        }
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
@@ -59,18 +70,19 @@ public final class ContainerConfigurationFactory {
         return (List<Map<String, Object>>) (List<?>) entries;
     }
 
-    private static Map<String, Object> providerSection(Map<String, Object> entry, String type) {
+    private static Map<String, Object> providerSection(Map<String, Object> entry, String containerName, String type) {
         Object section = entry.get(type);
         if (section == null) {
             section = findSectionByNormalizedKey(entry, type);
         }
         if (section == null) {
+            // a provider without required parameters (e.g. a custom one) may come up with an
+            // empty property map; backends reject genuinely missing parameters by name
             return Map.of();
         }
         if (!(section instanceof Map)) {
-            throw new IllegalStateException(
-                    "Provider section '" + type + "' of container entry must be a mapping, but was: "
-                            + section.getClass().getSimpleName());
+            throw new IllegalStateException("Provider section '" + type + "' of container '" + containerName
+                    + "' must be a mapping, but was: " + section.getClass().getSimpleName());
         }
         @SuppressWarnings("unchecked")
         Map<String, Object> properties = (Map<String, Object>) section;
@@ -92,12 +104,6 @@ public final class ContainerConfigurationFactory {
 
     private static ContainerConfiguration toConfiguration(
             PolystoreProperties.ContainerProperties container, Map<String, Object> section) {
-        if (isBlank(container.getName())) {
-            throw new IllegalStateException("polystore.containers[].name must not be blank");
-        }
-        if (isBlank(container.getType())) {
-            throw new IllegalStateException("polystore.containers[" + container.getName() + "].type must not be blank");
-        }
         ContainerConfiguration.Builder builder = ContainerConfiguration.builder()
                 .name(container.getName())
                 .type(container.getType())

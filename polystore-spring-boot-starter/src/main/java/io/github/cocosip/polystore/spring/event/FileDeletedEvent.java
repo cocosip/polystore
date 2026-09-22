@@ -3,12 +3,11 @@ package io.github.cocosip.polystore.spring.event;
 import org.springframework.context.ApplicationEvent;
 
 /**
- * Published after a successful {@code delete} or {@code deleteAll} call on a container, one event
- * per file name.
+ * Published after a successful {@code delete} call on a container, only when the backend reported
+ * that a file was actually removed ({@code delete} returning {@code true}).
  *
- * <p>Backends treat deleting a missing file as a no-op, so consumers must not assume the file
- * actually existed. The file name is the logical name passed by the caller, before any tenant
- * prefix is applied by the container.</p>
+ * <p>Deleting a missing file reports {@code false} and publishes no event. The file name is the
+ * logical name passed by the caller, before any tenant prefix is applied by the container.</p>
  */
 public class FileDeletedEvent extends ApplicationEvent {
 

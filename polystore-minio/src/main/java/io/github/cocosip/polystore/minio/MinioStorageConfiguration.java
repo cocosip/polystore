@@ -14,8 +14,6 @@ import io.github.cocosip.polystore.util.ConfigUtils;
  * @param secretKey               secret key, required
  * @param bucketName              bucket name, required
  * @param region                  signing region, default {@code us-east-1} (Polystore extension)
- * @param urlExpirySeconds        presigned URL expiry in seconds, default {@code 3600} (Polystore
- *                                extension)
  * @param createBucketIfNotExists create the bucket lazily before the first upload, default
  *                                {@code false}
  */
@@ -25,7 +23,6 @@ record MinioStorageConfiguration(
         String secretKey,
         String bucketName,
         String region,
-        int urlExpirySeconds,
         boolean createBucketIfNotExists) {
 
     /**
@@ -44,15 +41,8 @@ record MinioStorageConfiguration(
         boolean withSSL = ConfigUtils.optBoolean(properties, "withSSL", false);
         boolean createBucketIfNotExists = ConfigUtils.optBoolean(properties, "createBucketIfNotExists", false);
         String region = ConfigUtils.optString(properties, "region", "us-east-1");
-        int urlExpirySeconds = ConfigUtils.optInt(properties, "urlExpiry", 3600);
         return new MinioStorageConfiguration(
-                resolveEndpoint(endPoint, withSSL),
-                accessKey,
-                secretKey,
-                bucketName,
-                region,
-                urlExpirySeconds,
-                createBucketIfNotExists);
+                resolveEndpoint(endPoint, withSSL), accessKey, secretKey, bucketName, region, createBucketIfNotExists);
     }
 
     /**

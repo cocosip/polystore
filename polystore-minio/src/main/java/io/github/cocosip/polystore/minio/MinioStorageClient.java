@@ -8,6 +8,7 @@ import io.github.cocosip.polystore.StorageProviderDownloadArgs;
 import io.github.cocosip.polystore.StorageProviderExistsArgs;
 import io.github.cocosip.polystore.StorageProviderGetArgs;
 import io.github.cocosip.polystore.StorageProviderSaveArgs;
+import io.github.cocosip.polystore.exception.StorageFileAlreadyExistsException;
 import io.github.cocosip.polystore.exception.StorageOperationException;
 import io.github.cocosip.polystore.util.ExactLengthInputStream;
 import io.minio.BucketExistsArgs;
@@ -29,16 +30,13 @@ import java.util.concurrent.TimeUnit;
 public final class MinioStorageClient implements StorageBackend {
     private final MinioClient client;
     private final String bucketName;
-    private final int urlExpirySeconds;
     private final boolean createBucketIfNotExists;
 
     /** Creates the MinIO backend. */
     @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "the SDK client is intentionally shared")
-    public MinioStorageClient(
-            MinioClient client, String bucketName, int urlExpirySeconds, boolean createBucketIfNotExists) {
+    public MinioStorageClient(MinioClient client, String bucketName, boolean createBucketIfNotExists) {
         this.client = client;
         this.bucketName = bucketName;
-        this.urlExpirySeconds = urlExpirySeconds;
         this.createBucketIfNotExists = createBucketIfNotExists;
     }
 
@@ -47,7 +45,7 @@ public final class MinioStorageClient implements StorageBackend {
         if (!args.isOverrideExisting()
                 && exists(new StorageProviderExistsArgs(
                         args.getContainerName(), args.getConfiguration(), args.getFileId()))) {
-            throw new io.github.cocosip.polystore.exception.StorageFileAlreadyExistsException(args.getFileId());
+            throw new StorageFileAlreadyExistsException(args.getFileId());
         }
         if (createBucketIfNotExists) ensureBucket();
         ExactLengthInputStream bounded = new ExactLengthInputStream(args.getFileStream(), args.getContentLength());
@@ -130,7 +128,6 @@ public final class MinioStorageClient implements StorageBackend {
     public String getAccessUrl(StorageProviderAccessArgs args) {
         long seconds =
                 Math.max(1, Duration.between(Instant.now(), args.getExpires()).toSeconds());
-        if (seconds == 0) seconds = urlExpirySeconds;
         try {
             return client.getPresignedObjectUrl(GetPresignedObjectUrlArgs.builder()
                     .method(io.minio.http.Method.GET)

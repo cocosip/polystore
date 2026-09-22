@@ -10,7 +10,9 @@ import io.github.cocosip.polystore.StorageProviderSaveArgs;
 import io.github.cocosip.polystore.exception.StorageFileAlreadyExistsException;
 import io.github.cocosip.polystore.exception.StorageOperationException;
 import io.github.cocosip.polystore.util.ExactLengthInputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -52,11 +54,33 @@ public final class LocalStorageClient implements StorageBackend {
         try {
             Path parent = target.getParent();
             if (parent != null) Files.createDirectories(parent);
-            Files.copy(bounded, target, StandardCopyOption.REPLACE_EXISTING);
-            bounded.verifyComplete();
+            // write to a temporary file first, so a failed save never leaves a truncated target
+            Path temp = parent != null
+                    ? Files.createTempFile(parent, "polystore-", ".tmp")
+                    : Files.createTempFile("polystore-", ".tmp");
+            try {
+                Files.copy(bounded, temp, StandardCopyOption.REPLACE_EXISTING);
+                bounded.verifyComplete();
+                moveIntoPlace(temp, target);
+            } catch (Exception primary) {
+                try {
+                    Files.deleteIfExists(temp);
+                } catch (Exception cleanup) {
+                    primary.addSuppressed(cleanup);
+                }
+                throw primary;
+            }
             return args.getFileId();
         } catch (Exception e) {
             throw new StorageOperationException("Failed to save file: " + args.getFileId(), e);
+        }
+    }
+
+    private static void moveIntoPlace(Path temp, Path target) throws IOException {
+        try {
+            Files.move(temp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (AtomicMoveNotSupportedException e) {
+            Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 

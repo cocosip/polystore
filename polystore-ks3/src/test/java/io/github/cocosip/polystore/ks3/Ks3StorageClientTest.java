@@ -70,7 +70,7 @@ class Ks3StorageClientTest {
     }
 
     private static Ks3StorageClient client(RecordingKs3Client sdk) {
-        return new Ks3StorageClient(sdk, "archive", 60, false);
+        return new Ks3StorageClient(sdk, "archive", false);
     }
 
     private static StorageProviderSaveArgs args(TrackingInputStream stream, long length) {

@@ -46,6 +46,11 @@ interface SftpChannelFactory {
             return channel;
         }
 
+        /** Reports whether both the SFTP channel and its carrying session are still connected. */
+        boolean alive() {
+            return channel != null && channel.isConnected() && (session == null || session.isConnected());
+        }
+
         void close() {
             channel.disconnect();
             if (session != null) {

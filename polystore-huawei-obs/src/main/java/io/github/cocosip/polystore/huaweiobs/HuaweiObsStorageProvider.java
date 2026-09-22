@@ -22,8 +22,6 @@ import java.util.List;
  *   <li>{@code createContainerIfNotExists} (default {@code false}) — create the bucket lazily,
  *       right before the first upload, exactly like the reference provider; container construction
  *       never touches the network</li>
- *   <li>{@code urlExpiry} (default {@code 3600}, Polystore extension) — signed URL expiry in
- *       seconds</li>
  * </ul>
  */
 public class HuaweiObsStorageProvider implements StorageProvider {
@@ -48,9 +46,6 @@ public class HuaweiObsStorageProvider implements StorageProvider {
         ObsClient client =
                 new ObsClient(configuration.accessKeyId(), configuration.accessKeySecret(), configuration.endpoint());
         return new HuaweiObsStorageClient(
-                client,
-                configuration.bucketName(),
-                configuration.urlExpirySeconds(),
-                configuration.createContainerIfNotExists());
+                client, configuration.bucketName(), configuration.createContainerIfNotExists());
     }
 }

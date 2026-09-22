@@ -29,8 +29,6 @@ import java.util.List;
  *       version {@code V2}, {@code V4} or {@code V4_UNSIGNED_PAYLOAD_SIGNER}</li>
  *   <li>{@code useAwsSignature} (default {@code false}, Polystore extension) — use the AWS signature
  *       instead of the KS3 native one; leave it {@code false} for KS3 itself</li>
- *   <li>{@code urlExpiry} (default {@code 3600}, Polystore extension) — presigned URL expiry in
- *       seconds</li>
  * </ul>
  */
 public class Ks3StorageProvider implements StorageProvider {
@@ -54,7 +52,6 @@ public class Ks3StorageProvider implements StorageProvider {
         return new Ks3StorageClient(
                 Ks3ConnectionFactory.create(configuration),
                 configuration.bucketName(),
-                configuration.urlExpirySeconds(),
                 configuration.createContainerIfNotExists());
     }
 }

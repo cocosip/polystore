@@ -130,7 +130,7 @@ class AwsStorageClientTest {
                 .region(Region.US_EAST_1)
                 .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create("ak", "sk")))
                 .build();
-        return new AwsStorageClient(recording.proxy(), presigner, "my-bucket", 3600, createContainerIfNotExists);
+        return new AwsStorageClient(recording.proxy(), presigner, "my-bucket", createContainerIfNotExists);
     }
 
     private static ContainerConfiguration configuration(boolean multipart) {

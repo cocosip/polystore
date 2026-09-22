@@ -24,8 +24,6 @@ import io.github.cocosip.polystore.StorageProvider;
  *   <li>{@code accountName} + {@code accountKey} (Polystore extension) — credential pair used when
  *       no {@code connectionString} is given; the endpoint is derived as
  *       {@code https://<accountName>.blob.core.windows.net}</li>
- *   <li>{@code sasExpiry} (default {@code 3600}, Polystore extension) — SAS token validity in
- *       seconds for {@code getUrl}</li>
  * </ul>
  *
  * <p>SAS generation requires the account key, so a connection string without a key cannot sign
@@ -56,7 +54,6 @@ public class AzureBlobStorageProvider implements StorageProvider {
 
         BlobContainerClient containerClient =
                 builder.buildClient().getBlobContainerClient(configuration.containerName());
-        return new AzureBlobStorageClient(
-                containerClient, configuration.sasExpirySeconds(), configuration.createContainerIfNotExists());
+        return new AzureBlobStorageClient(containerClient, configuration.createContainerIfNotExists());
     }
 }

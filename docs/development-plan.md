@@ -199,6 +199,19 @@
 > in `ContainerConfiguration.properties`, while multipart and HTTP-access fields are fixed
 > container configuration.
 
+> 2026-09-22: Alignment review fixes. The dead `urlExpiry` / `sasExpiry` provider parameters were
+> removed from every backend — `getAccessUrl` expiry always comes from the caller. Aliyun OSS STS
+> mode now resolves credentials per request through an OSS `CredentialsProvider` backed by the
+> cache, so a long-lived client re-assumes the role after session expiry instead of keeping the
+> initially baked-in credentials. SFTP streams `getOrNull` over the leased connection (the channel
+> returns to the pool when the caller closes the stream) instead of buffering the whole file, the
+> pool blocks when exhausted instead of failing, disconnected channels are evicted instead of
+> reused, and file ids containing `..` segments are rejected like in the local backend. Local saves
+> write to a temporary file and move it into place, so a failed save no longer leaves a truncated
+> target. The starter now rejects a container whose provider section is missing, naming the
+> container, and the `s3` provider raises `IllegalStateException` (not `StorageOperationException`)
+> for a malformed `serverUrl`, matching the configuration-validation convention.
+
 ---
 
 ## Phase 5: Quality & Release ✅

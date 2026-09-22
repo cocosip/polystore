@@ -26,7 +26,6 @@ import io.github.cocosip.polystore.util.ConfigUtils;
  * @param policy                       additional policy narrowing the assumed role, may be empty
  * @param temporaryCredentialsCacheKey process-wide cache key of the temporary credentials, so
  *                                     containers sharing a key share the cached session
- * @param urlExpirySeconds             default presigned URL expiry in seconds
  * @param createContainerIfNotExists   create the bucket lazily, right before the first upload
  */
 record AliyunOssStorageConfiguration(
@@ -41,7 +40,6 @@ record AliyunOssStorageConfiguration(
         int durationSeconds,
         String policy,
         String temporaryCredentialsCacheKey,
-        long urlExpirySeconds,
         boolean createContainerIfNotExists) {
 
     /**
@@ -79,7 +77,6 @@ record AliyunOssStorageConfiguration(
         boolean createContainerIfNotExists = ConfigUtils.optBoolean(properties, "createContainerIfNotExists", false);
         String temporaryCredentialsCacheKey =
                 ConfigUtils.optString(properties, "temporaryCredentialsCacheKey", config.getName() + "/aliyun");
-        long urlExpiry = ConfigUtils.optLong(properties, "urlExpiry", 3600);
         boolean useInternal = ConfigUtils.optBoolean(properties, "useInternal", false);
 
         String resolvedEndpoint = useInternal ? endpoint.replace(".aliyuncs.com", "-internal.aliyuncs.com") : endpoint;
@@ -95,7 +92,6 @@ record AliyunOssStorageConfiguration(
                 durationSeconds,
                 policy,
                 temporaryCredentialsCacheKey,
-                urlExpiry,
                 createContainerIfNotExists);
     }
 }

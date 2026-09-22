@@ -14,7 +14,6 @@ import io.github.cocosip.polystore.util.ConfigUtils;
  * @param bucketName                 target bucket, never blank
  * @param accessKeyId                access key id of the access key pair
  * @param accessKeySecret            access key secret of the access key pair
- * @param urlExpirySeconds           default signed URL expiry in seconds
  * @param createContainerIfNotExists create the bucket lazily, right before the first upload
  */
 record HuaweiObsStorageConfiguration(
@@ -22,7 +21,6 @@ record HuaweiObsStorageConfiguration(
         String bucketName,
         String accessKeyId,
         String accessKeySecret,
-        long urlExpirySeconds,
         boolean createContainerIfNotExists) {
 
     /**
@@ -40,9 +38,8 @@ record HuaweiObsStorageConfiguration(
         String accessKeySecret = ConfigUtils.requireString(properties, "accessKeySecret");
         String bucketName = ConfigUtils.requireString(properties, "bucketName");
         boolean createContainerIfNotExists = ConfigUtils.optBoolean(properties, "createContainerIfNotExists", false);
-        long urlExpiry = ConfigUtils.optLong(properties, "urlExpiry", 3600);
 
         return new HuaweiObsStorageConfiguration(
-                endpoint, bucketName, accessKeyId, accessKeySecret, urlExpiry, createContainerIfNotExists);
+                endpoint, bucketName, accessKeyId, accessKeySecret, createContainerIfNotExists);
     }
 }

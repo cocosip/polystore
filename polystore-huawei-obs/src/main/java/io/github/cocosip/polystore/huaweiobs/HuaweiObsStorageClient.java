@@ -44,8 +44,7 @@ public final class HuaweiObsStorageClient implements StorageBackend {
     @SuppressFBWarnings(
             value = "EI_EXPOSE_REP2",
             justification = "wrapping the backend SDK client is the purpose of this class")
-    public HuaweiObsStorageClient(
-            ObsClient client, String bucketName, long ignoredUrlExpirySeconds, boolean createContainerIfNotExists) {
+    public HuaweiObsStorageClient(ObsClient client, String bucketName, boolean createContainerIfNotExists) {
         this.client = client;
         this.bucketName = bucketName;
         this.createContainerIfNotExists = createContainerIfNotExists;

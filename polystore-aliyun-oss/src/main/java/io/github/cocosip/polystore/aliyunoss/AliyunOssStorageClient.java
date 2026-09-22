@@ -37,7 +37,13 @@ public final class AliyunOssStorageClient implements StorageBackend {
     private final boolean createContainerIfNotExists;
     private volatile OSS client;
 
-    /** Creates the OSS backend. */
+    /**
+     * Creates the OSS backend.
+     *
+     * @param client                     initialized OSS SDK client, never {@code null}
+     * @param bucketName                 target bucket name, never blank
+     * @param createContainerIfNotExists create the bucket before the first upload when missing
+     */
     public AliyunOssStorageClient(OSS client, String bucketName, boolean createContainerIfNotExists) {
         this(() -> client, bucketName, createContainerIfNotExists);
     }
@@ -52,7 +58,7 @@ public final class AliyunOssStorageClient implements StorageBackend {
     public String save(StorageProviderSaveArgs args) {
         OSS oss = client();
         if (createContainerIfNotExists) ensureContainer(oss);
-        if (!args.isOverrideExisting() && oss.doesObjectExist(bucketName, args.getFileId()))
+        if (!args.isOverrideExisting() && existsOnClient(oss, args.getFileId()))
             throw new StorageFileAlreadyExistsException(args.getFileId());
         boolean multipart = args.getConfiguration().isEnableAutoMultiPartUpload()
                 && args.getContentLength() > args.getConfiguration().getMultiPartUploadMinFileSize();
@@ -122,7 +128,7 @@ public final class AliyunOssStorageClient implements StorageBackend {
 
     @Override
     public boolean delete(StorageProviderDeleteArgs args) {
-        if (!client().doesObjectExist(bucketName, args.getFileId())) return false;
+        if (!existsOnClient(client(), args.getFileId())) return false;
         try {
             client().deleteObject(bucketName, args.getFileId());
             return true;
@@ -137,6 +143,18 @@ public final class AliyunOssStorageClient implements StorageBackend {
             return client().doesObjectExist(bucketName, args.getFileId());
         } catch (Exception e) {
             throw failure("Failed to check file: " + args.getFileId(), e);
+        }
+    }
+
+    /**
+     * Existence probe on a specific client instance, translated like every other operation so SDK
+     * failures never escape the {@code PolystoreException} hierarchy.
+     */
+    private boolean existsOnClient(OSS oss, String fileId) {
+        try {
+            return oss.doesObjectExist(bucketName, fileId);
+        } catch (Exception e) {
+            throw failure("Failed to check file: " + fileId, e);
         }
     }
 

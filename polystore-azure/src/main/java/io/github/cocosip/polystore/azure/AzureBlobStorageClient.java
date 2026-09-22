@@ -28,7 +28,12 @@ public final class AzureBlobStorageClient implements StorageBackend {
     private final BlobContainerClient containerClient;
     private final boolean createContainerIfNotExists;
 
-    /** Creates the Azure Blob backend. */
+    /**
+     * Creates the Azure Blob backend.
+     *
+     * @param containerClient            initialized blob container client, never {@code null}
+     * @param createContainerIfNotExists create the container before the first upload when missing
+     */
     @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "the SDK client is intentionally shared")
     public AzureBlobStorageClient(BlobContainerClient containerClient, boolean createContainerIfNotExists) {
         this.containerClient = containerClient;
@@ -38,7 +43,7 @@ public final class AzureBlobStorageClient implements StorageBackend {
     @Override
     public String save(StorageProviderSaveArgs args) {
         BlobClient blob = containerClient.getBlobClient(args.getFileId());
-        if (!args.isOverrideExisting() && blob.exists()) {
+        if (!args.isOverrideExisting() && exists(blob, args.getFileId())) {
             throw new StorageFileAlreadyExistsException(args.getFileId());
         }
         if (createContainerIfNotExists) ensureContainer();
@@ -68,11 +73,20 @@ public final class AzureBlobStorageClient implements StorageBackend {
     @Override
     public InputStream getOrNull(StorageProviderGetArgs args) {
         BlobClient blob = containerClient.getBlobClient(args.getFileId());
-        if (!blob.exists()) return null;
+        if (!exists(blob, args.getFileId())) return null;
         try {
             return blob.openInputStream();
         } catch (Exception e) {
             throw new StorageOperationException("Failed to get file: " + args.getFileId(), e);
+        }
+    }
+
+    /** Existence probe translated like every other operation, so SDK failures stay in the hierarchy. */
+    private boolean exists(BlobClient blob, String fileId) {
+        try {
+            return blob.exists();
+        } catch (Exception e) {
+            throw new StorageOperationException("Failed to check file: " + fileId, e);
         }
     }
 

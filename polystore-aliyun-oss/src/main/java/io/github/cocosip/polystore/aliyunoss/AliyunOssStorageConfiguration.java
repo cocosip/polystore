@@ -79,7 +79,7 @@ record AliyunOssStorageConfiguration(
                 ConfigUtils.optString(properties, "temporaryCredentialsCacheKey", config.getName() + "/aliyun");
         boolean useInternal = ConfigUtils.optBoolean(properties, "useInternal", false);
 
-        String resolvedEndpoint = useInternal ? endpoint.replace(".aliyuncs.com", "-internal.aliyuncs.com") : endpoint;
+        String resolvedEndpoint = useInternal ? toInternalEndpoint(endpoint) : endpoint;
         return new AliyunOssStorageConfiguration(
                 resolvedEndpoint,
                 bucketName,
@@ -93,5 +93,30 @@ record AliyunOssStorageConfiguration(
                 policy,
                 temporaryCredentialsCacheKey,
                 createContainerIfNotExists);
+    }
+
+    /**
+     * Rewrites a public {@code *.aliyuncs.com} endpoint to its {@code -internal} intranet variant,
+     * preserving any scheme prefix. Endpoints that are already internal or do not belong to Aliyun
+     * are returned unchanged.
+     */
+    private static String toInternalEndpoint(String endpoint) {
+        String scheme = "";
+        String host = endpoint;
+        int schemeIndex = host.indexOf("://");
+        if (schemeIndex >= 0) {
+            scheme = host.substring(0, schemeIndex + 3);
+            host = host.substring(schemeIndex + 3);
+        }
+        int pathIndex = host.indexOf('/');
+        String suffix = pathIndex >= 0 ? host.substring(pathIndex) : "";
+        if (pathIndex >= 0) {
+            host = host.substring(0, pathIndex);
+        }
+        String marker = ".aliyuncs.com";
+        if (!host.endsWith(marker) || host.endsWith("-internal" + marker)) {
+            return endpoint;
+        }
+        return scheme + host.substring(0, host.length() - marker.length()) + "-internal" + marker + suffix;
     }
 }

@@ -79,7 +79,14 @@ final class AliyunOssStsCredentialsProvider implements CredentialsProvider {
         try {
             DefaultProfile profile = DefaultProfile.getProfile(
                     configuration.regionId(), configuration.accessKeyId(), configuration.accessKeySecret());
-            return new DefaultAcsClient(profile).getAcsResponse(request);
+            // the STS client owns an HTTP connection pool; shut it down after the one-shot call so
+            // credential refreshes do not accumulate clients for the life of the process
+            DefaultAcsClient acsClient = new DefaultAcsClient(profile);
+            try {
+                return acsClient.getAcsResponse(request);
+            } finally {
+                acsClient.shutdown();
+            }
         } catch (ClientException e) {
             throw new StorageOperationException("Failed to obtain Aliyun STS temporary credentials via AssumeRole", e);
         } catch (RuntimeException e) {

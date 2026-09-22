@@ -102,6 +102,7 @@ record S3StorageConfiguration(
      *
      * @param properties provider parameters
      * @return {@code http} or {@code https}, never {@code null}
+     * @throws IllegalStateException if {@code protocol} is set to an unrecognized value
      */
     private static String resolveScheme(Map<String, Object> properties) {
         Object raw = ConfigUtils.get(properties, "protocol");
@@ -112,6 +113,11 @@ record S3StorageConfiguration(
         if (value.equalsIgnoreCase("http") || String.valueOf(PROTOCOL_HTTP).equals(value)) {
             return "http";
         }
-        return ConfigUtils.optInt(properties, "protocol", PROTOCOL_HTTP) == PROTOCOL_HTTPS ? "https" : "http";
+        // numeric-style garbage would silently fall back to the default below; anything else is a
+        // configuration error a mistyped value must not hide
+        if (!value.isEmpty()) {
+            throw new IllegalStateException("Invalid storage parameter 'protocol': " + value);
+        }
+        return "http";
     }
 }

@@ -49,6 +49,12 @@ record SftpStorageConfiguration(
         if (password.isEmpty() && privateKeyPath.isEmpty()) {
             throw new IllegalStateException("SFTP credentials require either 'password' or 'privateKeyPath'");
         }
+        if (port < 1 || port > 65535) {
+            throw new IllegalStateException("Invalid storage parameter 'port': " + port);
+        }
+        if (poolSize < 1) {
+            throw new IllegalStateException("Invalid storage parameter 'poolSize': " + poolSize);
+        }
         return new SftpStorageConfiguration(
                 host, port, username, password, privateKeyPath, basePath, urlPrefix, poolSize, strictHostKeyChecking);
     }

@@ -32,7 +32,13 @@ public final class MinioStorageClient implements StorageBackend {
     private final String bucketName;
     private final boolean createBucketIfNotExists;
 
-    /** Creates the MinIO backend. */
+    /**
+     * Creates the MinIO backend.
+     *
+     * @param client                   initialized MinIO SDK client, never {@code null}
+     * @param bucketName               target bucket name, never blank
+     * @param createBucketIfNotExists  create the bucket before the first upload when missing
+     */
     @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "the SDK client is intentionally shared")
     public MinioStorageClient(MinioClient client, String bucketName, boolean createBucketIfNotExists) {
         this.client = client;
@@ -56,7 +62,7 @@ public final class MinioStorageClient implements StorageBackend {
             PutObjectArgs.Builder builder = PutObjectArgs.builder().bucket(bucketName).object(args.getFileId()).stream(
                     bounded, args.getContentLength(), partSize);
             if (args.getContentType() != null) builder.contentType(args.getContentType());
-            builder.headers(args.getMetadata());
+            builder.userMetadata(args.getMetadata());
             client.putObject(builder.build());
             bounded.verifyComplete();
             return args.getFileId();
@@ -126,6 +132,11 @@ public final class MinioStorageClient implements StorageBackend {
 
     @Override
     public String getAccessUrl(StorageProviderAccessArgs args) {
+        if (args.isCheckFileExist()
+                && !exists(new StorageProviderExistsArgs(
+                        args.getContainerName(), args.getConfiguration(), args.getFileId()))) {
+            return "";
+        }
         long seconds =
                 Math.max(1, Duration.between(Instant.now(), args.getExpires()).toSeconds());
         try {

@@ -14,6 +14,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 
@@ -23,8 +24,17 @@ public final class LocalStorageClient implements StorageBackend {
     private final String containerName;
     private final boolean appendContainerNameToBasePath;
     private final String httpServer;
+    private final boolean createDirectories;
 
-    /** Creates the filesystem backend. */
+    /**
+     * Creates the filesystem backend.
+     *
+     * @param basePath                     storage root directory, never {@code null}
+     * @param containerName                owning container name, may be empty
+     * @param appendContainerNameToBasePath store files under {@code basePath}/{@code containerName}
+     * @param httpServer                   URL prefix for access URLs, may be empty
+     * @param createDirectories            create the missing base directory during construction
+     */
     public LocalStorageClient(
             Path basePath,
             String containerName,
@@ -35,6 +45,7 @@ public final class LocalStorageClient implements StorageBackend {
         this.containerName = containerName == null ? "" : containerName.trim();
         this.appendContainerNameToBasePath = appendContainerNameToBasePath;
         this.httpServer = httpServer == null ? "" : httpServer.trim();
+        this.createDirectories = createDirectories;
         if (createDirectories) {
             try {
                 Files.createDirectories(basePath);
@@ -53,7 +64,7 @@ public final class LocalStorageClient implements StorageBackend {
         ExactLengthInputStream bounded = new ExactLengthInputStream(args.getFileStream(), args.getContentLength());
         try {
             Path parent = target.getParent();
-            if (parent != null) Files.createDirectories(parent);
+            if (parent != null && createDirectories) Files.createDirectories(parent);
             // write to a temporary file first, so a failed save never leaves a truncated target
             Path temp = parent != null
                     ? Files.createTempFile(parent, "polystore-", ".tmp")
@@ -90,6 +101,9 @@ public final class LocalStorageClient implements StorageBackend {
         if (!Files.exists(target)) return null;
         try {
             return Files.newInputStream(target);
+        } catch (NoSuchFileException e) {
+            // the file vanished between the existence check and the open; report it as missing
+            return null;
         } catch (Exception e) {
             throw new StorageOperationException("Failed to get file: " + args.getFileId(), e);
         }

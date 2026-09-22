@@ -16,6 +16,7 @@ import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** SFTP {@link StorageBackend}. */
 public final class SftpStorageClient implements StorageBackend {
@@ -120,7 +121,9 @@ public final class SftpStorageClient implements StorageBackend {
 
     @Override
     public String getAccessUrl(StorageProviderAccessArgs args) {
-        return urlPrefix.isEmpty() ? args.getFileId() : urlPrefix + "/" + args.getFileId();
+        if (urlPrefix.isEmpty()) return args.getFileId();
+        String prefix = urlPrefix.endsWith("/") ? urlPrefix.substring(0, urlPrefix.length() - 1) : urlPrefix;
+        return prefix + "/" + args.getFileId();
     }
 
     private void validateFileId(String fileId) {
@@ -138,12 +141,14 @@ public final class SftpStorageClient implements StorageBackend {
     /**
      * Remote stream that holds the pooled channel lease until the caller closes it; closing
      * releases the channel back to the pool (a dead channel is evicted there). The pool is never
-     * blocked while the caller consumes the stream.
+     * blocked while the caller consumes the stream. Closing twice is safe: only the first close
+     * releases the lease, keeping the pool's idle count and size slots consistent.
      */
     private static final class LeaseHoldingInputStream extends FilterInputStream {
 
         private final SftpConnectionPool pool;
         private final SftpChannelFactory.PooledSftpChannel leased;
+        private final AtomicBoolean released = new AtomicBoolean();
 
         LeaseHoldingInputStream(
                 InputStream delegate, SftpConnectionPool pool, SftpChannelFactory.PooledSftpChannel leased) {
@@ -157,7 +162,9 @@ public final class SftpStorageClient implements StorageBackend {
             try {
                 super.close();
             } finally {
-                pool.release(leased);
+                if (released.compareAndSet(false, true)) {
+                    pool.release(leased);
+                }
             }
         }
     }

@@ -12,7 +12,11 @@ public class StorageFileAlreadyExistsException extends PolystoreException {
 
     private final String fileName;
 
-    /** Creates the exception for the given file name. */
+    /**
+     * Creates the exception for the given file name.
+     *
+     * @param fileName file name that already exists
+     */
     public StorageFileAlreadyExistsException(String fileName) {
         super("File already exists: " + fileName);
         this.fileName = fileName;

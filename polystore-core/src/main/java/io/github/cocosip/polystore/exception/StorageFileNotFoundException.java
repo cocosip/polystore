@@ -12,7 +12,11 @@ public class StorageFileNotFoundException extends PolystoreException {
 
     private final String fileName;
 
-    /** Creates the exception for the given file name. */
+    /**
+     * Creates the exception for the given file name.
+     *
+     * @param fileName file name that could not be found
+     */
     public StorageFileNotFoundException(String fileName) {
         super("File not found: " + fileName);
         this.fileName = fileName;

@@ -40,7 +40,13 @@ public final class HuaweiObsStorageClient implements StorageBackend {
     private final String bucketName;
     private final boolean createContainerIfNotExists;
 
-    /** Creates the OBS backend. */
+    /**
+     * Creates the OBS backend.
+     *
+     * @param client                     initialized OBS SDK client, never {@code null}
+     * @param bucketName                 target bucket name, never blank
+     * @param createContainerIfNotExists create the bucket before the first upload when missing
+     */
     @SuppressFBWarnings(
             value = "EI_EXPOSE_REP2",
             justification = "wrapping the backend SDK client is the purpose of this class")

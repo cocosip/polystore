@@ -25,6 +25,9 @@ import io.minio.MinioClient;
  */
 public class MinioStorageProvider implements StorageProvider {
 
+    /** Creates the provider. */
+    public MinioStorageProvider() {}
+
     /** Provider type identifier of this backend. */
     public static final String TYPE = "minio";
 

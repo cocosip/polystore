@@ -42,6 +42,9 @@ import java.util.List;
  */
 public class AliyunOssStorageProvider implements StorageProvider {
 
+    /** Creates the provider. */
+    public AliyunOssStorageProvider() {}
+
     /** Provider type identifier of this backend. */
     public static final String TYPE = "aliyun-oss";
 

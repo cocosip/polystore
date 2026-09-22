@@ -31,6 +31,9 @@ import io.github.cocosip.polystore.StorageProvider;
  */
 public class AzureBlobStorageProvider implements StorageProvider {
 
+    /** Creates the provider. */
+    public AzureBlobStorageProvider() {}
+
     /** Provider type identifier of this backend. */
     public static final String TYPE = "azure";
 

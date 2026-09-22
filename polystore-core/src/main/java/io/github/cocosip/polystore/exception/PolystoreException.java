@@ -7,12 +7,21 @@ public class PolystoreException extends RuntimeException {
 
     private static final long serialVersionUID = 1L;
 
-    /** Creates the exception with a message. */
+    /**
+     * Creates the exception with a message.
+     *
+     * @param message detail message
+     */
     public PolystoreException(String message) {
         super(message);
     }
 
-    /** Creates the exception with a message and an underlying cause. */
+    /**
+     * Creates the exception with a message and an underlying cause.
+     *
+     * @param message detail message
+     * @param cause   underlying cause
+     */
     public PolystoreException(String message, Throwable cause) {
         super(message, cause);
     }

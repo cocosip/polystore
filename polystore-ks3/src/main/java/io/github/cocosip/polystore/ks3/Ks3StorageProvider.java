@@ -33,6 +33,9 @@ import java.util.List;
  */
 public class Ks3StorageProvider implements StorageProvider {
 
+    /** Creates the provider. */
+    public Ks3StorageProvider() {}
+
     /** Provider type identifier of this backend. */
     public static final String TYPE = "ks3";
 

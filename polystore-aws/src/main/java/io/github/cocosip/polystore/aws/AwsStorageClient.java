@@ -46,7 +46,15 @@ public final class AwsStorageClient implements StorageBackend {
     private final String containerName;
     private final boolean createContainerIfNotExists;
 
-    /** Creates the AWS S3 backend. */
+    /**
+     * Creates the AWS S3 backend.
+     *
+     * @param client                     initialized S3 SDK client in the configured region, never
+     *                                   {@code null}
+     * @param presigner                  presigner in the same region, never {@code null}
+     * @param containerName              bucket name, never blank
+     * @param createContainerIfNotExists create the bucket before the first upload when missing
+     */
     @SuppressFBWarnings(
             value = "EI_EXPOSE_REP2",
             justification = "the initialized SDK clients are intentionally shared with the backend")

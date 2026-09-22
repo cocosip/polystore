@@ -45,7 +45,15 @@ public final class S3StorageClient implements StorageBackend {
     private final String bucketName;
     private final boolean createBucketIfNotExists;
 
-    /** Creates the S3-compatible backend. */
+    /**
+     * Creates the S3-compatible backend.
+     *
+     * @param client                   initialized S3 SDK client bound to the configured endpoint,
+     *                                 never {@code null}
+     * @param presigner                presigner bound to the same endpoint, never {@code null}
+     * @param bucketName               target bucket name, never blank
+     * @param createBucketIfNotExists  create the bucket before the first upload when missing
+     */
     @SuppressFBWarnings(value = "EI_EXPOSE_REP2", justification = "SDK clients are intentionally shared")
     public S3StorageClient(S3Client client, S3Presigner presigner, String bucketName, boolean createBucketIfNotExists) {
         this.client = client;

@@ -13,10 +13,19 @@ public class FileDeletedEvent extends ApplicationEvent {
 
     private static final long serialVersionUID = 1L;
 
+    /** Logical file name used by the caller, before any tenant prefix. */
     private final String fileName;
+
+    /** Provider type identifier of the container, e.g. {@code minio}. */
     private final String providerType;
 
-    /** Creates the event for the given container and file. */
+    /**
+     * Creates the event for the given container and file.
+     *
+     * @param containerName name of the container the file was deleted from
+     * @param fileName      logical file name used by the caller
+     * @param providerType  provider type identifier of the container
+     */
     public FileDeletedEvent(String containerName, String fileName, String providerType) {
         super(containerName);
         this.fileName = fileName;

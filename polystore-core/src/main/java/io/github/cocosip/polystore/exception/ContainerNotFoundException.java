@@ -9,7 +9,11 @@ public class ContainerNotFoundException extends PolystoreException {
 
     private final String containerName;
 
-    /** Creates the exception for the given container name. */
+    /**
+     * Creates the exception for the given container name.
+     *
+     * @param containerName container name that could not be found
+     */
     public ContainerNotFoundException(String containerName) {
         super("Storage container not found: " + containerName);
         this.containerName = containerName;

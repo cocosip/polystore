@@ -23,6 +23,9 @@ import java.util.List;
  */
 public class LocalStorageProvider implements StorageProvider {
 
+    /** Creates the provider. */
+    public LocalStorageProvider() {}
+
     /** Provider type identifier of this backend. */
     public static final String TYPE = "local";
 

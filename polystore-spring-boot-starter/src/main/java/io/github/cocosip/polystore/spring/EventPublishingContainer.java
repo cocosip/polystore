@@ -15,7 +15,12 @@ public final class EventPublishingContainer implements StorageContainer {
     private final StorageContainer inner;
     private final StorageEventPublisher publisher;
 
-    /** Creates the publishing view. */
+    /**
+     * Creates the publishing view.
+     *
+     * @param inner     decorated container, never {@code null}
+     * @param publisher event sink, never {@code null}
+     */
     public EventPublishingContainer(StorageContainer inner, StorageEventPublisher publisher) {
         this.inner = inner;
         this.publisher = publisher;

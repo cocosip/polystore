@@ -99,22 +99,38 @@ public final class ContainerConfiguration {
         return tenantIsolation;
     }
 
-    /** Returns whether Polystore should automatically choose multipart upload. */
+    /**
+     * Returns whether Polystore should automatically choose multipart upload.
+     *
+     * @return {@code true} if automatic multipart upload is enabled
+     */
     public boolean isEnableAutoMultiPartUpload() {
         return enableAutoMultiPartUpload;
     }
 
-    /** Returns the size above which multipart upload is selected. */
+    /**
+     * Returns the size above which multipart upload is selected.
+     *
+     * @return multipart selection threshold in bytes
+     */
     public long getMultiPartUploadMinFileSize() {
         return multiPartUploadMinFileSize;
     }
 
-    /** Returns the configured multipart part size. */
+    /**
+     * Returns the configured multipart part size.
+     *
+     * @return multipart part size in bytes
+     */
     public long getMultiPartUploadShardingSize() {
         return multiPartUploadShardingSize;
     }
 
-    /** Returns whether public access URL generation is enabled. */
+    /**
+     * Returns whether public access URL generation is enabled.
+     *
+     * @return {@code true} if public access URLs are generated
+     */
     public boolean isHttpAccess() {
         return httpAccess;
     }
@@ -203,25 +219,45 @@ public final class ContainerConfiguration {
             return this;
         }
 
-        /** Enables or disables automatic multipart upload. */
+        /**
+         * Enables or disables automatic multipart upload.
+         *
+         * @param value {@code true} to enable automatic multipart upload
+         * @return this builder
+         */
         public Builder enableAutoMultiPartUpload(boolean value) {
             this.enableAutoMultiPartUpload = value;
             return this;
         }
 
-        /** Sets the multipart selection threshold in bytes. */
+        /**
+         * Sets the multipart selection threshold in bytes.
+         *
+         * @param value threshold in bytes
+         * @return this builder
+         */
         public Builder multiPartUploadMinFileSize(long value) {
             this.multiPartUploadMinFileSize = value;
             return this;
         }
 
-        /** Sets the multipart part size in bytes. */
+        /**
+         * Sets the multipart part size in bytes.
+         *
+         * @param value part size in bytes
+         * @return this builder
+         */
         public Builder multiPartUploadShardingSize(long value) {
             this.multiPartUploadShardingSize = value;
             return this;
         }
 
-        /** Enables or disables public access URL generation. */
+        /**
+         * Enables or disables public access URL generation.
+         *
+         * @param value {@code true} to generate public access URLs
+         * @return this builder
+         */
         public Builder httpAccess(boolean value) {
             this.httpAccess = value;
             return this;

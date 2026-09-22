@@ -8,12 +8,21 @@ public class StorageOperationException extends PolystoreException {
 
     private static final long serialVersionUID = 1L;
 
-    /** Creates the exception with a message only, for failures without an underlying cause. */
+    /**
+     * Creates the exception with a message only, for failures without an underlying cause.
+     *
+     * @param message detail message
+     */
     public StorageOperationException(String message) {
         super(message);
     }
 
-    /** Creates the exception with a message and the backend cause. */
+    /**
+     * Creates the exception with a message and the backend cause.
+     *
+     * @param message detail message
+     * @param cause   backend cause
+     */
     public StorageOperationException(String message, Throwable cause) {
         super(message, cause);
     }

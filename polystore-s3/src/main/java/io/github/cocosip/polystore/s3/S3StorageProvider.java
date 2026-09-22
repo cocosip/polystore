@@ -37,6 +37,9 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
  */
 public class S3StorageProvider implements StorageProvider {
 
+    /** Creates the provider. */
+    public S3StorageProvider() {}
+
     /** Provider type identifier of this backend. */
     public static final String TYPE = "s3";
 

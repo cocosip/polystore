@@ -11,14 +11,25 @@ public class DefaultStorageContainer implements StorageContainer {
     private final ContainerInfo info;
     private final StorageBackend backend;
 
-    /** Creates a container from immutable configuration and a backend implementation. */
+    /**
+     * Creates a container from immutable configuration and a backend implementation.
+     *
+     * @param configuration container configuration, never {@code null}
+     * @param backend       backend implementation, never {@code null}
+     */
     public DefaultStorageContainer(ContainerConfiguration configuration, StorageBackend backend) {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.info = ContainerInfo.from(configuration);
         this.backend = Objects.requireNonNull(backend, "backend");
     }
 
-    /** Creates a default container coordinator. */
+    /**
+     * Creates a default container coordinator.
+     *
+     * @param configuration container configuration, never {@code null}
+     * @param backend       backend implementation, never {@code null}
+     * @return container coordinator, never {@code null}
+     */
     public static DefaultStorageContainer from(ContainerConfiguration configuration, StorageBackend backend) {
         return new DefaultStorageContainer(configuration, backend);
     }

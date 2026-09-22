@@ -16,7 +16,12 @@ public final class ExactLengthInputStream extends InputStream {
     private final long expectedLength;
     private long remaining;
 
-    /** Creates a bounded, non-closing view over a caller-owned stream. */
+    /**
+     * Creates a bounded, non-closing view over a caller-owned stream.
+     *
+     * @param delegate caller-owned underlying stream, never {@code null}
+     * @param length   exact number of bytes to expose, never negative
+     */
     public ExactLengthInputStream(InputStream delegate, long length) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         if (length < 0) {
@@ -72,14 +77,22 @@ public final class ExactLengthInputStream extends InputStream {
         return (int) Math.min(remaining, delegate.available());
     }
 
-    /** Verifies that the complete declared range has been consumed. */
+    /**
+     * Verifies that the complete declared range has been consumed.
+     *
+     * @throws EOFException if bytes of the declared range were never delivered by the delegate
+     */
     public void verifyComplete() throws EOFException {
         if (remaining != 0) {
             throw earlyEof();
         }
     }
 
-    /** Returns the number of declared bytes not yet consumed. */
+    /**
+     * Returns the number of declared bytes not yet consumed.
+     *
+     * @return remaining byte count
+     */
     public long getRemaining() {
         return remaining;
     }

@@ -8,7 +8,11 @@ package io.github.cocosip.polystore;
  */
 public interface StorageContainer extends StorageClient {
 
-    /** Returns this container's complete immutable configuration. */
+    /**
+     * Returns this container's complete immutable configuration.
+     *
+     * @return container configuration, never {@code null}
+     */
     ContainerConfiguration getConfiguration();
 
     /**

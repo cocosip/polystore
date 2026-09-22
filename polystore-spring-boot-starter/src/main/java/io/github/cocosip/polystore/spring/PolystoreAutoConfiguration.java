@@ -28,6 +28,9 @@ import org.springframework.core.env.Environment;
 @EnableConfigurationProperties(PolystoreProperties.class)
 public class PolystoreAutoConfiguration {
 
+    /** Creates the auto-configuration. */
+    public PolystoreAutoConfiguration() {}
+
     /**
      * Builds the storage manager from the configured containers and the discovered providers.
      *

@@ -26,6 +26,9 @@ import java.util.List;
  */
 public class HuaweiObsStorageProvider implements StorageProvider {
 
+    /** Creates the provider. */
+    public HuaweiObsStorageProvider() {}
+
     /** Provider type identifier of this backend. */
     public static final String TYPE = "huawei-obs";
 

@@ -38,6 +38,9 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
  */
 public class AwsStorageProvider implements StorageProvider {
 
+    /** Creates the provider. */
+    public AwsStorageProvider() {}
+
     /** Provider type identifier of this backend. */
     public static final String TYPE = "aws";
 

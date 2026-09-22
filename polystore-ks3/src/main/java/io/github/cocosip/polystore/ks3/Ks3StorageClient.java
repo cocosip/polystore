@@ -34,7 +34,13 @@ public final class Ks3StorageClient implements StorageBackend {
     private final String bucketName;
     private final boolean createContainerIfNotExists;
 
-    /** Creates the KS3 backend. */
+    /**
+     * Creates the KS3 backend.
+     *
+     * @param client                     initialized KS3 SDK client, never {@code null}
+     * @param bucketName                 target bucket name, never blank
+     * @param createContainerIfNotExists create the bucket before the first upload when missing
+     */
     @SuppressFBWarnings(
             value = "EI_EXPOSE_REP2",
             justification = "wrapping the backend SDK client is the purpose of this class")

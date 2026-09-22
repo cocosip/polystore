@@ -15,7 +15,12 @@ public final class TenantPathPrefixContainer implements StorageContainer {
     private final StorageContainer inner;
     private final TenantIdSupplier tenantIdSupplier;
 
-    /** Creates the tenant-isolating view. */
+    /**
+     * Creates the tenant-isolating view.
+     *
+     * @param inner            decorated container, never {@code null}
+     * @param tenantIdSupplier tenant id source, may be {@code null}
+     */
     public TenantPathPrefixContainer(StorageContainer inner, TenantIdSupplier tenantIdSupplier) {
         this.inner = inner;
         this.tenantIdSupplier = tenantIdSupplier;

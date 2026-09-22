@@ -27,6 +27,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "polystore")
 public class PolystoreProperties {
 
+    /** Creates the properties holder. */
+    public PolystoreProperties() {}
+
     private List<ContainerProperties> containers = new ArrayList<>();
 
     /**
@@ -55,6 +58,9 @@ public class PolystoreProperties {
 
     /** Typed definition of one container entry. */
     public static class ContainerProperties {
+
+        /** Creates one container definition. */
+        public ContainerProperties() {}
 
         private String name;
         private String type;
@@ -138,42 +144,74 @@ public class PolystoreProperties {
             this.tenantIsolation = tenantIsolation;
         }
 
-        /** Returns whether automatic multipart upload is enabled. */
+        /**
+         * Returns whether automatic multipart upload is enabled.
+         *
+         * @return {@code true} if automatic multipart upload is enabled, may be {@code null}
+         */
         public Boolean getEnableAutoMultiPartUpload() {
             return enableAutoMultiPartUpload;
         }
 
-        /** Sets whether automatic multipart upload is enabled. */
+        /**
+         * Sets whether automatic multipart upload is enabled.
+         *
+         * @param value enablement flag
+         */
         public void setEnableAutoMultiPartUpload(Boolean value) {
             enableAutoMultiPartUpload = value;
         }
 
-        /** Returns the multipart selection threshold in bytes. */
+        /**
+         * Returns the multipart selection threshold in bytes.
+         *
+         * @return threshold in bytes, may be {@code null}
+         */
         public Long getMultiPartUploadMinFileSize() {
             return multiPartUploadMinFileSize;
         }
 
-        /** Sets the multipart selection threshold in bytes. */
+        /**
+         * Sets the multipart selection threshold in bytes.
+         *
+         * @param value threshold in bytes
+         */
         public void setMultiPartUploadMinFileSize(Long value) {
             multiPartUploadMinFileSize = value;
         }
 
-        /** Returns the multipart part size in bytes. */
+        /**
+         * Returns the multipart part size in bytes.
+         *
+         * @return part size in bytes, may be {@code null}
+         */
         public Long getMultiPartUploadShardingSize() {
             return multiPartUploadShardingSize;
         }
 
-        /** Sets the multipart part size in bytes. */
+        /**
+         * Sets the multipart part size in bytes.
+         *
+         * @param value part size in bytes
+         */
         public void setMultiPartUploadShardingSize(Long value) {
             multiPartUploadShardingSize = value;
         }
 
-        /** Returns whether public access URLs are enabled. */
+        /**
+         * Returns whether public access URLs are enabled.
+         *
+         * @return {@code true} if public access URLs are generated, may be {@code null}
+         */
         public Boolean getHttpAccess() {
             return httpAccess;
         }
 
-        /** Sets whether public access URLs are enabled. */
+        /**
+         * Sets whether public access URLs are enabled.
+         *
+         * @param value enablement flag
+         */
         public void setHttpAccess(Boolean value) {
             httpAccess = value;
         }

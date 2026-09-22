@@ -15,6 +15,9 @@ import io.github.cocosip.polystore.StorageProvider;
  */
 public class SftpStorageProvider implements StorageProvider {
 
+    /** Creates the provider. */
+    public SftpStorageProvider() {}
+
     /** Provider type identifier of this backend. */
     public static final String TYPE = "sftp";
 

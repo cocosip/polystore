@@ -210,6 +210,14 @@
           <configuration>
             <release>${maven.compiler.release}</release>
             <parameters>true</parameters>
+            <compilerArgs>
+              <!-- -processing is excluded: Spring/SpotBugs annotations legitimately have no processor. -->
+              <arg>-Xlint:all,-processing</arg>
+              <!-- Explicit annotation processing: javac 21+ warns about implicit classpath enabling. -->
+              <arg>-proc:full</arg>
+              <!-- Zero-warning guarantee: any new javac warning fails the build. -->
+              <arg>-Werror</arg>
+            </compilerArgs>
           </configuration>
         </plugin>
         <plugin>

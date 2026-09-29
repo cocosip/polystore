@@ -99,6 +99,34 @@ class LocalStorageClientTest {
     }
 
     @Test
+    void selfReferentialFileIdsShouldBeRejected() throws Exception {
+        LocalStorageClient backend = backend();
+        // the container directory would be the target of "." / "a/.." style ids
+        Files.createDirectories(basePath.resolve("images"));
+        for (String fileId : new String[] {".", "a/..", "x/../."}) {
+            assertThatThrownBy(() -> backend.save(saveArgs(fileId, "x", 1, false)))
+                    .as("save with %s", fileId)
+                    .isInstanceOf(StorageOperationException.class)
+                    .hasMessageContaining("escapes");
+            assertThatThrownBy(() -> backend.delete(new StorageProviderDeleteArgs("images", config, fileId)))
+                    .as("delete with %s", fileId)
+                    .isInstanceOf(StorageOperationException.class)
+                    .hasMessageContaining("escapes");
+        }
+        // the base and container directories must still exist after the rejected operations
+        assertThat(Files.isDirectory(basePath)).isTrue();
+        assertThat(Files.isDirectory(basePath.resolve("images"))).isTrue();
+    }
+
+    @Test
+    void accessUrlShouldPercentEncodeSpecialCharacters() {
+        LocalStorageClient backend = new LocalStorageClient(basePath, "images", true, "https://cdn.example.com", true);
+        assertThat(backend.getAccessUrl(new StorageProviderAccessArgs(
+                        "images", config, "2026/a b#1.txt", Instant.parse("2026-09-22T00:00:00Z"), false)))
+                .isEqualTo("https://cdn.example.com/images/2026/a%20b%231.txt");
+    }
+
+    @Test
     void providerShouldParseSharpAbpKeysAndRejectMissingBasePath() {
         LocalStorageProvider provider = new LocalStorageProvider();
         assertThat(provider.getAliases()).contains("FileSystem");

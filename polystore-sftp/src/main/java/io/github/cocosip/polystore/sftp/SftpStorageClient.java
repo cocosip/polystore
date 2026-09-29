@@ -18,8 +18,11 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** SFTP {@link StorageBackend}. */
-public final class SftpStorageClient implements StorageBackend {
+/**
+ * SFTP {@link StorageBackend}. The client owns the {@link SftpConnectionPool} it was built with:
+ * {@link #close()} releases every idle pooled SSH session once the client is no longer needed.
+ */
+public final class SftpStorageClient implements StorageBackend, AutoCloseable {
     private final SftpConnectionPool pool;
     private final String basePath;
     private final String urlPrefix;
@@ -29,6 +32,12 @@ public final class SftpStorageClient implements StorageBackend {
         this.pool = pool;
         this.basePath = basePath;
         this.urlPrefix = urlPrefix;
+    }
+
+    /** Closes the connection pool, disconnecting every idle SSH session. */
+    @Override
+    public void close() {
+        pool.close();
     }
 
     @Override
@@ -56,20 +65,25 @@ public final class SftpStorageClient implements StorageBackend {
     public InputStream getOrNull(StorageProviderGetArgs args) {
         validateFileId(args.getFileId());
         SftpChannelFactory.PooledSftpChannel leased = pool.borrow();
-        InputStream remote;
+        boolean hold = false;
         try {
-            remote = leased.channel().get(resolve(args.getFileId()));
+            InputStream remote = leased.channel().get(resolve(args.getFileId()));
+            // the channel stays leased until the caller closes the stream, so the remote content is
+            // streamed instead of being buffered in memory
+            InputStream stream = new LeaseHoldingInputStream(remote, pool, leased);
+            hold = true;
+            return stream;
         } catch (SftpException e) {
-            pool.release(leased);
             if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) return null;
             throw new StorageOperationException("Failed to get file: " + args.getFileId(), e);
-        } catch (Exception e) {
-            pool.release(leased);
+        } catch (RuntimeException e) {
             throw new StorageOperationException("Failed to get file: " + args.getFileId(), e);
+        } finally {
+            // covers every Throwable path, so a failing open can never shrink the pool capacity
+            if (!hold) {
+                pool.release(leased);
+            }
         }
-        // the channel stays leased until the caller closes the stream, so the remote content is
-        // streamed instead of being buffered in memory
-        return new LeaseHoldingInputStream(remote, pool, leased);
     }
 
     @Override
@@ -135,7 +149,8 @@ public final class SftpStorageClient implements StorageBackend {
     }
 
     private String resolve(String fileId) {
-        return fileId.startsWith("/") ? basePath + fileId : basePath + "/" + fileId;
+        String base = basePath.endsWith("/") ? basePath.substring(0, basePath.length() - 1) : basePath;
+        return fileId.startsWith("/") ? base + fileId : base + "/" + fileId;
     }
 
     /**

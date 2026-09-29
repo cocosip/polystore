@@ -43,6 +43,10 @@ public final class ContainerConfigurationFactory {
         List<ContainerConfiguration> configurations = new ArrayList<>(typed.size());
         for (int i = 0; i < typed.size(); i++) {
             PolystoreProperties.ContainerProperties container = typed.get(i);
+            // a sparse yml list (polystore.containers[1] without [0]) binds as a null element
+            if (container == null) {
+                throw new IllegalStateException("polystore.containers[" + i + "] must be a mapping");
+            }
             requireNameAndType(container);
             Map<String, Object> section =
                     i < raw.size() ? providerSection(raw.get(i), container.getName(), container.getType()) : Map.of();
@@ -71,6 +75,9 @@ public final class ContainerConfigurationFactory {
     }
 
     private static Map<String, Object> providerSection(Map<String, Object> entry, String containerName, String type) {
+        if (entry == null) {
+            return Map.of();
+        }
         Object section = entry.get(type);
         if (section == null) {
             section = findSectionByNormalizedKey(entry, type);

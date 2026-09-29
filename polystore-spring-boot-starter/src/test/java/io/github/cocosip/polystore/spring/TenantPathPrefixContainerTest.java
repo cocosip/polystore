@@ -55,6 +55,29 @@ class TenantPathPrefixContainerTest {
     }
 
     @Test
+    void tenantIdsEscapingThePrefixShouldBeRejected() {
+        InMemoryStorageClient backend = new InMemoryStorageClient();
+        TenantPathPrefixContainer container = container(backend, () -> "t1");
+        for (String tenantId : new String[] {"../escape", "a/b", "a\\b", "..", "a/../b"}) {
+            assertThatThrownBy(() -> container.save(
+                            "a.txt",
+                            new ByteArrayInputStream(new byte[0]),
+                            0,
+                            ".txt",
+                            false,
+                            StorageSaveOptions.builder().tenantId(tenantId).build()))
+                    .as("explicit tenant id %s", tenantId)
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("Tenant id");
+        }
+        // the same rule applies to tenant ids coming from the supplier
+        TenantPathPrefixContainer supplierBacked = container(backend, () -> "../escape");
+        assertThatThrownBy(() -> supplierBacked.getOrNull("a.txt"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Tenant id");
+    }
+
+    @Test
     void readAndAccessOperationsShouldApplyPrefix() throws Exception {
         InMemoryStorageClient backend = new InMemoryStorageClient();
         StorageContainer raw = DefaultStorageContainer.from(

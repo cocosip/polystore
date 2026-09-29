@@ -136,7 +136,7 @@ class S3StorageClientTest {
             if ("headBucket".equals(name) && headBucketFailure != null) throw headBucketFailure;
             if ("putObject".equals(name)) {
                 RequestBody body = (RequestBody) args[1];
-                lengths.add(body.contentLength());
+                lengths.add(body.optionalContentLength().orElseThrow());
                 consume(body);
             } else if ("createMultipartUpload".equals(name)) {
                 return CreateMultipartUploadResponse.builder().uploadId("u1").build();

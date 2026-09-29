@@ -227,13 +227,20 @@ final class AwsCredentialsResolver {
             if (current != null && current.expiresAt().isAfter(Instant.now())) {
                 return current.credentials();
             }
-            AwsSessionCredentials loaded = loader.get();
-            cached = new CachedCredentials(
-                    loaded,
-                    loaded.expirationTime()
-                            .map(expiry -> expiry.minus(EXPIRY_MARGIN))
-                            .orElseGet(() -> Instant.now().plus(FALLBACK_TTL)));
-            return loaded;
+            synchronized (this) {
+                // re-check under the lock so concurrent refreshes fire a single STS call
+                current = cached;
+                if (current != null && current.expiresAt().isAfter(Instant.now())) {
+                    return current.credentials();
+                }
+                AwsSessionCredentials loaded = loader.get();
+                cached = new CachedCredentials(
+                        loaded,
+                        loaded.expirationTime()
+                                .map(expiry -> expiry.minus(EXPIRY_MARGIN))
+                                .orElseGet(() -> Instant.now().plus(FALLBACK_TTL)));
+                return loaded;
+            }
         }
 
         /** One cached credential set together with its refresh instant. */

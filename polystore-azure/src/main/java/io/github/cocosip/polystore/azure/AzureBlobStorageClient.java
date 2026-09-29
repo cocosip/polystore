@@ -49,7 +49,7 @@ public final class AzureBlobStorageClient implements StorageBackend {
         if (createContainerIfNotExists) ensureContainer();
         ExactLengthInputStream bounded = new ExactLengthInputStream(args.getFileStream(), args.getContentLength());
         try {
-            BlobParallelUploadOptions options = new BlobParallelUploadOptions(bounded, args.getContentLength());
+            BlobParallelUploadOptions options = new BlobParallelUploadOptions(bounded);
             boolean multipart = args.getConfiguration().isEnableAutoMultiPartUpload()
                     && args.getContentLength() > args.getConfiguration().getMultiPartUploadMinFileSize();
             if (multipart) {

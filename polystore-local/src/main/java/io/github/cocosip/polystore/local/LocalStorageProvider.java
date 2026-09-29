@@ -17,7 +17,7 @@ import java.util.List;
  *   <li>{@code appendContainerNameToBasePath} (default {@code true}, store files under a
  *       {@code containerName} sub-directory)</li>
  *   <li>{@code httpServer} (default empty, HTTP static-resource server prefixed to the URL returned
- *       by {@code getUrl})</li>
+ *       by {@code getAccessUrl})</li>
  *   <li>{@code createDirectories} (default {@code true}, create the missing base directory)</li>
  * </ul>
  */

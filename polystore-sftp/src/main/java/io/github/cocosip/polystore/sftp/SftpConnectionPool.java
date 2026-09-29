@@ -13,12 +13,7 @@ import java.util.Deque;
 final class SftpConnectionPool {
 
     private final SftpChannelFactory factory;
-    private final String host;
-    private final int port;
-    private final String username;
-    private final String password;
-    private final String privateKeyPath;
-    private final String strictHostKeyChecking;
+    private final SftpStorageConfiguration configuration;
     private final int poolSize;
     private final Deque<SftpChannelFactory.PooledSftpChannel> idle = new ArrayDeque<>();
     private int created;
@@ -27,31 +22,13 @@ final class SftpConnectionPool {
     /**
      * Creates the pool.
      *
-     * @param factory                channel factory (the JSch default in production)
-     * @param host                   SFTP host
-     * @param port                   SFTP port
-     * @param username               user name
-     * @param password               password, may be {@code null}
-     * @param privateKeyPath         private key path, may be {@code null}
-     * @param strictHostKeyChecking  JSch StrictHostKeyChecking value
-     * @param poolSize               maximum number of concurrent channels
+     * @param factory       channel factory (the JSch default in production)
+     * @param configuration parsed connection parameters, never {@code null}
+     * @param poolSize      maximum number of concurrent channels
      */
-    SftpConnectionPool(
-            SftpChannelFactory factory,
-            String host,
-            int port,
-            String username,
-            String password,
-            String privateKeyPath,
-            String strictHostKeyChecking,
-            int poolSize) {
+    SftpConnectionPool(SftpChannelFactory factory, SftpStorageConfiguration configuration, int poolSize) {
         this.factory = factory;
-        this.host = host;
-        this.port = port;
-        this.username = username;
-        this.password = password;
-        this.privateKeyPath = privateKeyPath;
-        this.strictHostKeyChecking = strictHostKeyChecking;
+        this.configuration = configuration;
         this.poolSize = Math.max(1, poolSize);
     }
 
@@ -71,11 +48,13 @@ final class SftpConnectionPool {
             }
             SftpChannelFactory.PooledSftpChannel createdChannel;
             try {
-                createdChannel = factory.create(host, port, username, password, privateKeyPath, strictHostKeyChecking);
+                createdChannel = factory.create(configuration);
             } catch (Exception e) {
                 rollbackSlot();
                 throw new IllegalStateException(
-                        "Cannot connect to SFTP " + username + "@" + host + ":" + port + ": " + e.getMessage(), e);
+                        "Cannot connect to SFTP " + configuration.username() + "@" + configuration.host() + ":"
+                                + configuration.port() + ": " + e.getMessage(),
+                        e);
             }
             if (checkClosed(createdChannel)) {
                 throw new IllegalStateException("SFTP connection pool is closed");

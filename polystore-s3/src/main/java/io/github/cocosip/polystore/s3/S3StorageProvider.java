@@ -5,6 +5,7 @@ import io.github.cocosip.polystore.StorageBackend;
 import io.github.cocosip.polystore.StorageProvider;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.checksums.RequestChecksumCalculation;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
@@ -34,6 +35,10 @@ import software.amazon.awssdk.services.s3.presigner.S3Presigner;
  *   <li>{@code createBucketIfNotExists} (default {@code false}) — create the bucket lazily before
  *       the first upload</li>
  * </ul>
+ *
+ * <p>Request checksums are only calculated when an operation requires them
+ * ({@code WHEN_REQUIRED}), because the SDK default of attaching CRC32 headers to every upload is
+ * rejected by some strictly S3-compatible gateways.</p>
  */
 public class S3StorageProvider implements StorageProvider {
 
@@ -64,6 +69,9 @@ public class S3StorageProvider implements StorageProvider {
                 .region(region)
                 .credentialsProvider(credentials)
                 .endpointOverride(configuration.endpoint())
+                // the SDK default (WHEN_SUPPORTED) attaches CRC32 checksum headers that older
+                // S3-compatible gateways reject; only add checksums where the operation requires them
+                .requestChecksumCalculation(RequestChecksumCalculation.WHEN_REQUIRED)
                 .serviceConfiguration(s3Configuration);
         S3Presigner.Builder presignerBuilder = S3Presigner.builder()
                 .region(region)

@@ -37,15 +37,10 @@ class SftpStorageClientTest {
         final List<Integer> created = new ArrayList<>();
         final List<FakeChannel> channels = new ArrayList<>();
         final List<PooledSftpChannel> pooled = new ArrayList<>();
+        volatile Error getFailure;
 
         @Override
-        public PooledSftpChannel create(
-                String host,
-                int port,
-                String username,
-                String password,
-                String privateKeyPath,
-                String strictHostKeyChecking) {
+        public PooledSftpChannel create(SftpStorageConfiguration configuration) {
             created.add(1);
             FakeChannel channel = new FakeChannel();
             channels.add(channel);
@@ -63,6 +58,12 @@ class SftpStorageClientTest {
             }
 
             @Override
+            public void disconnect() {
+                alive = false;
+                super.disconnect();
+            }
+
+            @Override
             public void put(java.io.InputStream src, String dst, int mode) {
                 try {
                     files.put(dst, src.readAllBytes());
@@ -73,6 +74,9 @@ class SftpStorageClientTest {
 
             @Override
             public java.io.InputStream get(String src) throws com.jcraft.jsch.SftpException {
+                if (getFailure != null) {
+                    throw getFailure;
+                }
                 byte[] content = files.get(src);
                 if (content == null) throw new com.jcraft.jsch.SftpException(SSH_FX_NO_SUCH_FILE, src);
                 return new ByteArrayInputStream(content);
@@ -91,8 +95,13 @@ class SftpStorageClientTest {
         }
     }
 
+    private static SftpStorageConfiguration configuration(int poolSize) {
+        return new SftpStorageConfiguration(
+                "sftp.internal", 22, "user", "pw", null, "/data/files", "", poolSize, "no", "", 10_000);
+    }
+
     private SftpConnectionPool pool(FakeChannelFactory factory, int poolSize) {
-        return new SftpConnectionPool(factory, "sftp.internal", 22, "user", "pw", null, "no", poolSize);
+        return new SftpConnectionPool(factory, configuration(poolSize), poolSize);
     }
 
     private SftpStorageClient backend(FakeChannelFactory factory) {
@@ -234,5 +243,35 @@ class SftpStorageClientTest {
                         .build()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("host");
+    }
+
+    @Test
+    void poolSlotShouldSurviveArbitraryThrowablesWhileOpeningAStream() {
+        FakeChannelFactory factory = new FakeChannelFactory();
+        SftpConnectionPool pool = pool(factory, 1);
+        SftpStorageClient backend = new SftpStorageClient(pool, "/data/files", "");
+        factory.getFailure = new AssertionError("connection broke");
+
+        assertThatThrownBy(() -> backend.getOrNull(new StorageProviderGetArgs("files", CONFIG, "a.txt")))
+                .isInstanceOf(AssertionError.class);
+
+        // the slot must be free again: the same channel is handed out without creating a new one
+        SftpChannelFactory.PooledSftpChannel reborrowed = pool.borrow();
+        assertThat(reborrowed).isSameAs(factory.pooled.get(0));
+        assertThat(factory.created).hasSize(1);
+    }
+
+    @Test
+    void closeShouldDisconnectIdleChannelsAndRejectFurtherBorrows() throws Exception {
+        FakeChannelFactory factory = new FakeChannelFactory();
+        SftpConnectionPool pool = pool(factory, 2);
+        SftpStorageClient backend = new SftpStorageClient(pool, "/data/files", "");
+        backend.save(saveArgs("a.txt", "hello", 5, false));
+
+        backend.close();
+        backend.close(); // closing twice is safe
+
+        assertThat(factory.channels.get(0).alive).isFalse();
+        assertThrows(IllegalStateException.class, pool::borrow);
     }
 }

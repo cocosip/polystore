@@ -13,23 +13,11 @@ interface SftpChannelFactory {
     /**
      * Creates one connected, ready-to-use SFTP channel.
      *
-     * @param host         SFTP host
-     * @param port         SFTP port
-     * @param username     user name
-     * @param password     password, may be {@code null} when a private key is used
-     * @param privateKeyPath private key file path, may be {@code null} when a password is used
-     * @param strictHostKeyChecking JSch {@code StrictHostKeyChecking} value
+     * @param configuration parsed connection parameters, never {@code null}
      * @return pooled handle holding the channel and its session, never {@code null}
      * @throws Exception on connection or authentication failure
      */
-    PooledSftpChannel create(
-            String host,
-            int port,
-            String username,
-            String password,
-            String privateKeyPath,
-            String strictHostKeyChecking)
-            throws Exception;
+    PooledSftpChannel create(SftpStorageConfiguration configuration) throws Exception;
 
     /** Channel plus the session that carries it, closed together on pool eviction. */
     final class PooledSftpChannel {
@@ -60,19 +48,23 @@ interface SftpChannelFactory {
     }
 
     /** Default JSch-backed factory. */
-    SftpChannelFactory JSCH = (host, port, username, password, privateKeyPath, strictHostKeyChecking) -> {
+    SftpChannelFactory JSCH = configuration -> {
         JSch jsch = new JSch();
-        if (privateKeyPath != null && !privateKeyPath.isEmpty()) {
-            jsch.addIdentity(privateKeyPath);
+        if (!configuration.knownHosts().isEmpty()) {
+            jsch.setKnownHosts(configuration.knownHosts());
         }
-        Session session = jsch.getSession(username, host, port);
-        if (password != null && !password.isEmpty()) {
-            session.setPassword(password);
+        if (!configuration.privateKeyPath().isEmpty()) {
+            jsch.addIdentity(configuration.privateKeyPath());
         }
-        session.setConfig("StrictHostKeyChecking", strictHostKeyChecking);
-        session.connect();
+        Session session = jsch.getSession(configuration.username(), configuration.host(), configuration.port());
+        if (!configuration.password().isEmpty()) {
+            session.setPassword(configuration.password());
+        }
+        session.setConfig("StrictHostKeyChecking", configuration.strictHostKeyChecking());
+        // a bounded connect keeps a black-holed host from parking a reserved pool slot forever
+        session.connect(configuration.connectTimeoutMillis());
         ChannelSftp channel = (ChannelSftp) session.openChannel("sftp");
-        channel.connect();
+        channel.connect(configuration.connectTimeoutMillis());
         return new PooledSftpChannel(channel, session);
     };
 }

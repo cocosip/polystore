@@ -10,6 +10,7 @@ import com.obs.services.model.ObjectMetadata;
 import com.obs.services.model.ObsObject;
 import com.obs.services.model.PartEtag;
 import com.obs.services.model.PutObjectRequest;
+import com.obs.services.model.TemporarySignatureRequest;
 import com.obs.services.model.UploadPartRequest;
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import io.github.cocosip.polystore.StorageBackend;
@@ -197,8 +198,9 @@ public final class HuaweiObsStorageClient implements StorageBackend {
         long expirySeconds =
                 Math.max(1, Duration.between(Instant.now(), args.getExpires()).getSeconds());
         try {
-            return client.createSignedUrl(
-                    HttpMethodEnum.GET, bucketName, args.getFileId(), null, expirySeconds, null, null);
+            TemporarySignatureRequest signature = new TemporarySignatureRequest(
+                    HttpMethodEnum.GET, bucketName, args.getFileId(), null, expirySeconds);
+            return client.createTemporarySignature(signature).getSignedUrl();
         } catch (Exception e) {
             throw failure("Failed to sign URL for: " + args.getFileId(), e);
         }

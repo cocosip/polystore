@@ -10,7 +10,12 @@ import java.io.InputStream;
 import java.nio.file.Path;
 import java.time.Instant;
 
-/** Public container decorator that publishes successful save and delete events. */
+/**
+ * Public container decorator that publishes successful save and delete events. Events fire only
+ * after the underlying operation succeeded; synchronous listeners follow standard Spring semantics,
+ * so an exception thrown by a listener propagates to the caller even though the file operation
+ * itself already completed.
+ */
 public final class EventPublishingContainer implements StorageContainer {
     private final StorageContainer inner;
     private final StorageEventPublisher publisher;

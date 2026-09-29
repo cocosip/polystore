@@ -154,7 +154,12 @@ class MinioStorageClientTest {
         assertThat(sdk.calls).containsExactly("bucketExists", "makeBucket");
     }
 
-    /** Records MinIO SDK calls without touching the network. */
+    /**
+     * Records MinIO SDK calls without touching the network. The inherited {@code MinioClient#close()}
+     * declares {@code InterruptedException}; the {@code try} lint is suppressed because the fake never
+     * participates in try-with-resources and the throwing signature is fixed by the SDK.
+     */
+    @SuppressWarnings("try")
     private static final class RecordingMinioClient extends MinioClient {
 
         private final List<String> calls = new ArrayList<>();

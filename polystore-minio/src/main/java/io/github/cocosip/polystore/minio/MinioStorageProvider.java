@@ -19,7 +19,7 @@ import io.minio.MinioClient;
  *   <li>{@code createBucketIfNotExists} (default {@code false}) — create the bucket lazily before
  *       the first upload</li>
  *   <li>{@code region} (default {@code us-east-1}, Polystore extension) — signing region; setting
- *       it lets {@code getUrl} compute the presigned URL locally instead of querying the bucket
+ *       it lets {@code getAccessUrl} compute the presigned URL locally instead of querying the bucket
  *       location over the network</li>
  * </ul>
  */

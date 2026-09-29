@@ -48,12 +48,12 @@ public final class MinioStorageClient implements StorageBackend {
 
     @Override
     public String save(StorageProviderSaveArgs args) {
+        if (createBucketIfNotExists) ensureBucket();
         if (!args.isOverrideExisting()
                 && exists(new StorageProviderExistsArgs(
                         args.getContainerName(), args.getConfiguration(), args.getFileId()))) {
             throw new StorageFileAlreadyExistsException(args.getFileId());
         }
-        if (createBucketIfNotExists) ensureBucket();
         ExactLengthInputStream bounded = new ExactLengthInputStream(args.getFileStream(), args.getContentLength());
         boolean multipart = args.getConfiguration().isEnableAutoMultiPartUpload()
                 && args.getContentLength() > args.getConfiguration().getMultiPartUploadMinFileSize();

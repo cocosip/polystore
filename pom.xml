@@ -67,6 +67,12 @@
     <slf4j.version>2.0.17</slf4j.version>
     <awssdk.version>2.30.18</awssdk.version>
     <ks3sdk.version>1.9.0</ks3sdk.version>
+    <minio.version>8.5.12</minio.version>
+    <esdk-obs-java.version>3.23.9.1</esdk-obs-java.version>
+    <azure-storage-blob.version>12.27.1</azure-storage-blob.version>
+    <aliyun-sdk-oss.version>3.17.4</aliyun-sdk-oss.version>
+    <aliyun-java-sdk-core.version>4.5.10</aliyun-java-sdk-core.version>
+    <jsch.version>0.2.20</jsch.version>
     <spring-boot.version>3.5.6</spring-boot.version>
     <junit.version>5.13.4</junit.version>
     <assertj.version>3.27.6</assertj.version>
@@ -155,6 +161,36 @@
         <groupId>com.ksyun</groupId>
         <artifactId>ks3-kss-java-sdk</artifactId>
         <version>${ks3sdk.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>io.minio</groupId>
+        <artifactId>minio</artifactId>
+        <version>${minio.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.huaweicloud</groupId>
+        <artifactId>esdk-obs-java</artifactId>
+        <version>${esdk-obs-java.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.azure</groupId>
+        <artifactId>azure-storage-blob</artifactId>
+        <version>${azure-storage-blob.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.aliyun.oss</groupId>
+        <artifactId>aliyun-sdk-oss</artifactId>
+        <version>${aliyun-sdk-oss.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.aliyun</groupId>
+        <artifactId>aliyun-java-sdk-core</artifactId>
+        <version>${aliyun-java-sdk-core.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.github.mwiede</groupId>
+        <artifactId>jsch</artifactId>
+        <version>${jsch.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>

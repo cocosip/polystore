@@ -12,15 +12,19 @@ import io.github.cocosip.polystore.exception.StorageOperationException;
 import io.github.cocosip.polystore.util.ExactLengthInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Objects;
 
 /** Filesystem {@link StorageBackend}. */
 public final class LocalStorageClient implements StorageBackend {
     private final Path basePath;
+    private final Path root;
     private final String containerName;
     private final boolean appendContainerNameToBasePath;
     private final String httpServer;
@@ -41,11 +45,14 @@ public final class LocalStorageClient implements StorageBackend {
             boolean appendContainerNameToBasePath,
             String httpServer,
             boolean createDirectories) {
-        this.basePath = basePath;
+        this.basePath = Objects.requireNonNull(basePath, "basePath");
         this.containerName = containerName == null ? "" : containerName.trim();
         this.appendContainerNameToBasePath = appendContainerNameToBasePath;
         this.httpServer = httpServer == null ? "" : httpServer.trim();
         this.createDirectories = createDirectories;
+        this.root = this.appendContainerNameToBasePath && !this.containerName.isEmpty()
+                ? basePath.resolve(this.containerName).normalize()
+                : basePath.normalize();
         if (createDirectories) {
             try {
                 Files.createDirectories(basePath);
@@ -111,8 +118,9 @@ public final class LocalStorageClient implements StorageBackend {
 
     @Override
     public boolean delete(StorageProviderDeleteArgs args) {
+        Path target = resolve(args.getFileId());
         try {
-            return Files.deleteIfExists(resolve(args.getFileId()));
+            return Files.deleteIfExists(target);
         } catch (Exception e) {
             throw new StorageOperationException("Failed to delete file: " + args.getFileId(), e);
         }
@@ -138,13 +146,31 @@ public final class LocalStorageClient implements StorageBackend {
     @Override
     public String getAccessUrl(StorageProviderAccessArgs args) {
         String relativePath = relativePath(args.getFileId());
-        return httpServer.isEmpty() ? relativePath : ensureTrailingSlash(httpServer) + trimLeadingSlashes(relativePath);
+        String encodedPath = encodePath(relativePath);
+        return httpServer.isEmpty() ? encodedPath : ensureTrailingSlash(httpServer) + trimLeadingSlashes(encodedPath);
+    }
+
+    /**
+     * Percent-encodes every path segment so file ids containing spaces, {@code #} or {@code ?}
+     * produce usable URLs. Segments already made of unreserved characters stay unchanged.
+     */
+    private static String encodePath(String path) {
+        StringBuilder encoded = new StringBuilder(path.length());
+        for (String segment : path.split("/", -1)) {
+            if (!encoded.isEmpty()) {
+                encoded.append('/');
+            }
+            encoded.append(URLEncoder.encode(segment, StandardCharsets.UTF_8).replace("+", "%20"));
+        }
+        return encoded.toString();
     }
 
     private Path resolve(String fileId) {
         try {
             Path resolved = basePath.resolve(relativePath(fileId)).normalize();
-            if (!resolved.startsWith(basePath.normalize())) {
+            // self-referential ids like "." or "a/.." normalize onto the root directory itself,
+            // where save would move a file onto a directory and delete would remove it
+            if (!resolved.startsWith(root) || resolved.equals(root)) {
                 throw new StorageOperationException("File id escapes the base path: " + fileId);
             }
             return resolved;

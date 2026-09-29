@@ -72,9 +72,9 @@ class Ks3StorageProviderTest {
     }
 
     @Test
-    void explicitUrlExpiryShouldComeFromTheCaller() {
-        String url = container(with("urlExpiry", 60))
-                .getAccessUrl("a.txt", Instant.now().plusSeconds(301), false);
+    void urlExpiryShouldComeFromTheCallerInstant() {
+        // the URL expires exactly at the caller-supplied Instant; no urlExpiry parameter exists
+        String url = container(FULL).getAccessUrl("a.txt", Instant.now().plusSeconds(301), false);
 
         assertThat(url).contains("Expires=");
     }

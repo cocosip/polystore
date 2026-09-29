@@ -36,7 +36,7 @@ public final class TenantPathPrefixContainer implements StorageContainer {
             StorageSaveOptions options) {
         StorageSaveOptions actual = options == null ? StorageSaveOptions.defaults() : options;
         String explicit = actual.getTenantId();
-        String tenantId = explicit != null && !explicit.isBlank() ? explicit : requireSupplierTenantId();
+        String tenantId = explicit != null && !explicit.isBlank() ? validate(explicit) : requireSupplierTenantId();
         return inner.save(tenantId + "/" + fileId, stream, contentLength, ext, overrideExisting, actual);
     }
 
@@ -93,6 +93,22 @@ public final class TenantPathPrefixContainer implements StorageContainer {
         if (tenantIdSupplier == null) throw new TenantIdMissingException(inner.getName());
         String tenantId = tenantIdSupplier.get();
         if (tenantId == null || tenantId.isBlank()) throw new TenantIdMissingException(inner.getName());
+        return validate(tenantId);
+    }
+
+    /**
+     * Rejects tenant ids containing path separators or {@code ..} segments, which would escape the
+     * {@code {tenantId}/} prefix and defeat the isolation.
+     */
+    private static String validate(String tenantId) {
+        if (tenantId.indexOf('/') >= 0
+                || tenantId.indexOf('\\') >= 0
+                || tenantId.equals("..")
+                || tenantId.startsWith("../")
+                || tenantId.contains("/../")) {
+            throw new IllegalArgumentException(
+                    "Tenant id must not contain path separators or '..' segments: " + tenantId);
+        }
         return tenantId;
     }
 }

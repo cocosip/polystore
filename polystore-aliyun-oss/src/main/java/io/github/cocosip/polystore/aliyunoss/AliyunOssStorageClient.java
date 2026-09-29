@@ -119,7 +119,10 @@ public final class AliyunOssStorageClient implements StorageBackend {
             OSSObject object = client().getObject(new GetObjectRequest(bucketName, args.getFileId()));
             return object.getObjectContent();
         } catch (OSSException e) {
-            if (OSSErrorCode.NO_SUCH_KEY.equals(e.getErrorCode())) return null;
+            if (OSSErrorCode.NO_SUCH_KEY.equals(e.getErrorCode())
+                    || OSSErrorCode.NO_SUCH_BUCKET.equals(e.getErrorCode())) {
+                return null;
+            }
             throw failure("Failed to get file: " + args.getFileId(), e);
         } catch (Exception e) {
             throw failure("Failed to get file: " + args.getFileId(), e);
@@ -173,8 +176,8 @@ public final class AliyunOssStorageClient implements StorageBackend {
 
     @Override
     public String getAccessUrl(StorageProviderAccessArgs args) {
-        if (args.isCheckFileExist() && !client().doesObjectExist(bucketName, args.getFileId())) return "";
         try {
+            if (args.isCheckFileExist() && !client().doesObjectExist(bucketName, args.getFileId())) return "";
             return client().generatePresignedUrl(bucketName, args.getFileId(), Date.from(args.getExpires()))
                     .toString();
         } catch (Exception e) {

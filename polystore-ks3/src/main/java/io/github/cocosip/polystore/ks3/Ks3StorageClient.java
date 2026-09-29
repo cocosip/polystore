@@ -217,7 +217,6 @@ public final class Ks3StorageClient implements StorageBackend {
 
     private static boolean isNotFound(Ks3ServiceException e) {
         return e.getStatusCode() == 404
-                || e.getStatueCode() == 404
                 || "NoSuchKey".equals(e.getErrorCode())
                 || "NoSuchBucket".equals(e.getErrorCode());
     }
